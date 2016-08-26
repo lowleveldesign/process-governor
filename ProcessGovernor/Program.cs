@@ -1,8 +1,11 @@
-﻿using NDesk.Options;
+﻿using Microsoft.Win32;
+using NDesk.Options;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Reflection;
+using System.Security.Principal;
 
 namespace LowLevelDesign
 {
@@ -13,6 +16,7 @@ namespace LowLevelDesign
             List<string> procargs = null;
             bool showhelp = false;
             int pid = 0;
+            RegistryOperation registryOperation = RegistryOperation.NONE;
 
             var procgov = new ProcessGovernor();
 
@@ -33,6 +37,10 @@ namespace LowLevelDesign
                         }
                     }},
                 { "p|pid=", "Attach to an already running process", (int v) => pid = v },
+                { "install", "Installs procgov as a debugger for a specific process using Image File Executions.",
+                    v => { registryOperation = RegistryOperation.INSTALL; } },
+                { "uninstall", "Uninstalls procgov for a specific process.",
+                    v => { registryOperation = RegistryOperation.UNINSTALL; } },
                 { "h|help", "Show this message and exit", v => showhelp = v != null },
                 { "?", "Show this message and exit", v => showhelp = v != null }
             };
@@ -55,8 +63,17 @@ namespace LowLevelDesign
                 showhelp = true;
             }
 
+            if (!showhelp && registryOperation != RegistryOperation.NONE) {
+                if (procargs.Count == 0) {
+                    Console.WriteLine("ERROR: please provide an image name for a process you would like to intercept.");
+                    return;
+                }
+                SetupRegistryForProcessGovernor(procargs[0], registryOperation);
+                return;
+            }
+
             if (!showhelp && (procargs.Count == 0 && pid == 0) || (pid > 0 && procargs.Count > 0)) {
-                Console.WriteLine("ERROR: please provide either process name to start or PID of the already running process");
+                Console.WriteLine("ERROR: please provide either process name or PID of the already running process");
                 Console.WriteLine();
                 showhelp = true;
             }
@@ -131,5 +148,34 @@ namespace LowLevelDesign
             return mask;
         }
 
+        private static bool IsUserAdmin() {
+            WindowsIdentity identity = WindowsIdentity.GetCurrent();
+            WindowsPrincipal principal = new WindowsPrincipal(identity);
+            return principal.IsInRole(WindowsBuiltInRole.Administrator);
+        }
+
+        private enum RegistryOperation
+        {
+            INSTALL,
+            UNINSTALL,
+            NONE
+        }
+
+        private static void SetupRegistryForProcessGovernor(String appImageExe, RegistryOperation oper) {
+            if (!IsUserAdmin()) {
+                Console.WriteLine("You must be admin to do that. Run the app from the administrative console.");
+                return;
+            }
+            // extrace image.exe if path is provided
+            appImageExe = Path.GetFileName(appImageExe);
+            var regkey = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options", true);
+            // add to image file execution path
+            if (oper == RegistryOperation.INSTALL) {
+                regkey = regkey.CreateSubKey(appImageExe);
+                regkey.SetValue("Debugger", Assembly.GetExecutingAssembly().Location);
+            } else if (oper == RegistryOperation.UNINSTALL) {
+                regkey.DeleteSubKey(appImageExe, false);
+            }
+}
     }
 }
