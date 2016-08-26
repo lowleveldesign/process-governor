@@ -225,5 +225,9 @@ namespace LowLevelDesign.Win32
 
         [DllImport("kernel32.dll", SetLastError=true)]
         public static extern UInt32 WaitForSingleObject(IntPtr hHandle, UInt32 dwMilliseconds);
+
+        [DllImport("kernel32.dll",SetLastError = true)]
+        public static extern bool GetProcessAffinityMask(IntPtr hProcess, out long lpProcessAffinityMask, 
+            out long lpSystemAffinityMask);
     }
 }

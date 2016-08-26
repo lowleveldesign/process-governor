@@ -111,11 +111,14 @@ namespace LowLevelDesign
                     flags |= JobInformationLimitFlags.JOB_OBJECT_LIMIT_AFFINITY;
                 }
 
+                long systemAffinity, processAffinity;
+                CheckResult(ApiMethods.GetProcessAffinityMask(hProcess, out processAffinity, out systemAffinity));
+
                 // configure constraints
                 var limitInfo = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
                     BasicLimitInformation = new JOBOBJECT_BASIC_LIMIT_INFORMATION {
                         LimitFlags = flags,
-                        Affinity = cpuAffinityMask,
+                        Affinity = systemAffinity & cpuAffinityMask,
                         MaximumWorkingSetSize = maxWorkingSet
                     },
                     ProcessMemoryLimit = maxProcessMemory
