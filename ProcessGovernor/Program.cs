@@ -13,19 +13,16 @@ namespace LowLevelDesign
     {
         public static void Main(string[] args)
         {
-            List<string> procargs = null;
-            bool showhelp = false;
-            int pid = 0;
-            RegistryOperation registryOperation = RegistryOperation.NONE;
+            using (var procgov = new ProcessGovernor()) {
+                List<string> procargs = null;
+                bool showhelp = false;
+                int pid = 0;
+                RegistryOperation registryOperation = RegistryOperation.NONE;
 
-            var procgov = new ProcessGovernor();
-
-            var p = new OptionSet()
-            {
+                var p = new OptionSet()
+                {
                 { "m|maxmem=", "Max committed memory usage in bytes (accepted suffixes: K, M or G).",
                     v => { procgov.MaxProcessMemory = ParseMemoryString(v); } },
-                { "w|ws=", "Max working set (accepted suffixes: K, M or G).",
-                    v => { procgov.MaxWorkingSet = ParseMemoryString(v); } },
                 { "env=", "A text file with environment variables (each line in form: VAR=VAL). Applies only to newly created processes.",
                     v => LoadCustomEnvironmentVariables(procgov, v) },
                 { "c|cpu=", "If in hex (starts with 0x) it is treated as an affinity mask, otherwise it is a number of CPU cores assigned to your app.",
@@ -46,47 +43,48 @@ namespace LowLevelDesign
             };
 
 
-            try {
-                procargs = p.Parse(args);
-            } catch (OptionException ex) {
-                Console.Write("ERROR: invalid argument");
-                Console.WriteLine(ex.Message);
-                Console.WriteLine();
-                showhelp = true;
-            } catch (FormatException) {
-                Console.WriteLine("ERROR: invalid number in one of the constraints");
-                Console.WriteLine();
-                showhelp = true;
-            } catch (ArgumentException ex) {
-                Console.WriteLine("ERROR: {0}", ex.Message);
-                Console.WriteLine();
-                showhelp = true;
-            }
+                try {
+                    procargs = p.Parse(args);
+                } catch (OptionException ex) {
+                    Console.Write("ERROR: invalid argument");
+                    Console.WriteLine(ex.Message);
+                    Console.WriteLine();
+                    showhelp = true;
+                } catch (FormatException) {
+                    Console.WriteLine("ERROR: invalid number in one of the constraints");
+                    Console.WriteLine();
+                    showhelp = true;
+                } catch (ArgumentException ex) {
+                    Console.WriteLine("ERROR: {0}", ex.Message);
+                    Console.WriteLine();
+                    showhelp = true;
+                }
 
-            if (!showhelp && registryOperation != RegistryOperation.NONE) {
-                if (procargs.Count == 0) {
-                    Console.WriteLine("ERROR: please provide an image name for a process you would like to intercept.");
+                if (!showhelp && registryOperation != RegistryOperation.NONE) {
+                    if (procargs.Count == 0) {
+                        Console.WriteLine("ERROR: please provide an image name for a process you would like to intercept.");
+                        return;
+                    }
+                    SetupRegistryForProcessGovernor(procargs[0], registryOperation);
                     return;
                 }
-                SetupRegistryForProcessGovernor(procargs[0], registryOperation);
-                return;
-            }
 
-            if (!showhelp && (procargs.Count == 0 && pid == 0) || (pid > 0 && procargs.Count > 0)) {
-                Console.WriteLine("ERROR: please provide either process name or PID of the already running process");
-                Console.WriteLine();
-                showhelp = true;
-            }
+                if (!showhelp && (procargs.Count == 0 && pid == 0) || (pid > 0 && procargs.Count > 0)) {
+                    Console.WriteLine("ERROR: please provide either process name or PID of the already running process");
+                    Console.WriteLine();
+                    showhelp = true;
+                }
 
-            if (showhelp) {
-                ShowHelp(p);
-                return;
-            }
+                if (showhelp) {
+                    ShowHelp(p);
+                    return;
+                }
 
-            if (pid > 0) {
-                procgov.AttachToProcess(pid);
-            } else {
-                procgov.StartProcess(procargs);
+                if (pid > 0) {
+                    procgov.AttachToProcess(pid);
+                } else {
+                    procgov.StartProcess(procargs);
+                }
             }
         }
 

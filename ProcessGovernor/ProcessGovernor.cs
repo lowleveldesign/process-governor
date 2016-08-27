@@ -12,9 +12,9 @@ namespace LowLevelDesign
     public class ProcessGovernor : IDisposable
     {
         private uint maxProcessMemory;
-        private uint maxWorkingSet;
         private long cpuAffinityMask;
         private readonly Dictionary<string, string> additionalEnvironmentVars = new Dictionary<string, string>();
+        private Thread listener;
 
         private IntPtr hProcess, hIOCP, hJob;
 
@@ -24,9 +24,7 @@ namespace LowLevelDesign
 
             AssignProcessToJobObject();
 
-            if (ApiMethods.WaitForSingleObject(hProcess, ApiMethods.INFINITE) == 0xFFFFFFFF) {
-                throw new Win32Exception();
-            }
+            WaitForTheChildProcess();
         }
 
         public void StartProcess(IList<string> procargs)
@@ -47,9 +45,7 @@ namespace LowLevelDesign
             // and we can close the thread handle
             CloseHandle(pi.hThread);
 
-            if (ApiMethods.WaitForSingleObject(hProcess, ApiMethods.INFINITE) == 0xFFFFFFFF) {
-                throw new Win32Exception();
-            }
+            WaitForTheChildProcess();
         }
 
         private StringBuilder GetEnvironmentString()
@@ -77,9 +73,6 @@ namespace LowLevelDesign
 
         void AssignProcessToJobObject()
         {
-            Thread listener = null;
-            try {
-
                 var securityAttributes = new SECURITY_ATTRIBUTES();
                 securityAttributes.nLength = Marshal.SizeOf(securityAttributes);
 
@@ -104,9 +97,6 @@ namespace LowLevelDesign
                 if (maxProcessMemory > 0) {
                     flags |= JobInformationLimitFlags.JOB_OBJECT_LIMIT_PROCESS_MEMORY;
                 }
-                if (maxWorkingSet > 0) {
-                    flags |= JobInformationLimitFlags.JOB_OBJECT_LIMIT_WORKINGSET;
-                }
                 if (cpuAffinityMask != 0) {
                     flags |= JobInformationLimitFlags.JOB_OBJECT_LIMIT_AFFINITY;
                 }
@@ -118,8 +108,7 @@ namespace LowLevelDesign
                 var limitInfo = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
                     BasicLimitInformation = new JOBOBJECT_BASIC_LIMIT_INFORMATION {
                         LimitFlags = flags,
-                        Affinity = systemAffinity & cpuAffinityMask,
-                        MaximumWorkingSetSize = maxWorkingSet
+                        Affinity = systemAffinity & cpuAffinityMask
                     },
                     ProcessMemoryLimit = maxProcessMemory
                 };
@@ -129,11 +118,22 @@ namespace LowLevelDesign
 
                 // assign a process to a job to apply constraints
                 CheckResult(ApiMethods.AssignProcessToJobObject(hJob, hProcess));
+        }
 
-            } finally {
-            // wait for the listener thread to finish
-            if (listener != null && listener.IsAlive)
-                listener.Join();
+        void WaitForTheChildProcess()
+        {
+
+            if (ApiMethods.WaitForSingleObject(hProcess, ApiMethods.INFINITE) == 0xFFFFFFFF) {
+                throw new Win32Exception();
+            }
+
+            if (hIOCP != IntPtr.Zero) {
+                CloseHandle(hIOCP);
+            }
+            if (listener.IsAlive) {
+                if (!listener.Join(TimeSpan.FromMilliseconds(500))) {
+                    listener.Abort();
+                }
             }
         }
 
@@ -164,12 +164,6 @@ namespace LowLevelDesign
             set { maxProcessMemory = value; }
         }
 
-        public uint MaxWorkingSet
-        {
-            get { return maxWorkingSet; }
-            set { maxWorkingSet = value; }
-        }
-
         public long CpuAffinityMask
         {
             get { return cpuAffinityMask; }
@@ -184,9 +178,6 @@ namespace LowLevelDesign
 
         public void Dispose(bool disposing)
         {
-            if (hIOCP != IntPtr.Zero) {
-                CloseHandle(hIOCP);
-            }
             if (hProcess != IntPtr.Zero) {
                 CloseHandle(hProcess);
             }
