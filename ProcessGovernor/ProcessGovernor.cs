@@ -146,7 +146,8 @@ namespace LowLevelDesign
                         out lpOverlapped, ApiMethods.INFINITE)) {
                 if (msgIdentifier == (uint)JobMsgInfoMessages.JOB_OBJECT_MSG_NEW_PROCESS) {
                     Trace.TraceInformation("{0}: process {1} has started", msgIdentifier, (int)lpOverlapped);
-                } else if (msgIdentifier == (uint)JobMsgInfoMessages.JOB_OBJECT_MSG_EXIT_PROCESS) {
+                } else if (msgIdentifier == (uint)JobMsgInfoMessages.JOB_OBJECT_MSG_EXIT_PROCESS ||
+                    msgIdentifier == (uint)JobMsgInfoMessages.JOB_OBJECT_MSG_ABNORMAL_EXIT_PROCESS) {
                     Trace.TraceInformation("{0}: process {1} exited", msgIdentifier, (int)lpOverlapped);
                 } else if (msgIdentifier == (uint)JobMsgInfoMessages.JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO) {
                     // nothing
@@ -170,10 +171,9 @@ namespace LowLevelDesign
             set { cpuAffinityMask = value; }
         }
 
-        public void AddEnvironmentVariable(string varname, string varvalue)
+        public Dictionary<string, string> AdditionalEnvironmentVars
         {
-            Debug.Assert(!string.IsNullOrEmpty(varname));
-            additionalEnvironmentVars.Add(varname, varvalue);
+            get { return additionalEnvironmentVars; }
         }
 
         public void Dispose(bool disposing)

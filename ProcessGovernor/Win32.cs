@@ -169,25 +169,27 @@ namespace LowLevelDesign.Win32
     [StructLayout(LayoutKind.Sequential)]
     internal struct PROCESS_INFORMATION
     {
-       public IntPtr hProcess;
-       public IntPtr hThread;
-       public int dwProcessId;
-       public int dwThreadId;
+        public IntPtr hProcess;
+        public IntPtr hThread;
+        public int dwProcessId;
+        public int dwThreadId;
     }
 
     internal static class ApiMethods
     {
+        public const int SW_HIDE = 0;
+        public const int SW_SHOW = 5;
         public const uint INFINITE = 0xFFFFFFFF;
         public static readonly IntPtr INVALID_HANDLE_VALUE = new IntPtr(-1);
 
-        [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError = true)]
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         public static extern IntPtr CreateJobObject([In] ref SECURITY_ATTRIBUTES lpJobAttributes, string lpName);
 
         [DllImport("kernel32.dll", SetLastError = true)]
         public static extern bool TerminateJobObject(IntPtr hJob, uint uExitCode);
 
         [DllImport("kernel32.dll", SetLastError = true)]
-        [return:MarshalAs(UnmanagedType.Bool)]
+        [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool AssignProcessToJobObject(IntPtr hJob, IntPtr hProcess);
 
         [DllImport("kernel32.dll", SetLastError = true)]
@@ -198,7 +200,7 @@ namespace LowLevelDesign.Win32
         public static extern bool SetInformationJobObject(IntPtr hJob, JOBOBJECTINFOCLASS JobObjectInfoClass,
                 ref JOBOBJECT_ASSOCIATE_COMPLETION_PORT lpJobObjectInfo, uint cbJobObjectInfoLength);
 
-        [DllImport("kernel32.dll", SetLastError=true)]
+        [DllImport("kernel32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool CloseHandle(IntPtr hObject);
 
@@ -223,11 +225,17 @@ namespace LowLevelDesign.Win32
         public static extern IntPtr OpenProcess(ProcessAccessFlags dwDesiredAccess,
                         [MarshalAs(UnmanagedType.Bool)] bool bInheritHandle, int dwProcessId);
 
-        [DllImport("kernel32.dll", SetLastError=true)]
+        [DllImport("kernel32.dll", SetLastError = true)]
         public static extern UInt32 WaitForSingleObject(IntPtr hHandle, UInt32 dwMilliseconds);
 
-        [DllImport("kernel32.dll",SetLastError = true)]
-        public static extern bool GetProcessAffinityMask(IntPtr hProcess, out long lpProcessAffinityMask, 
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool GetProcessAffinityMask(IntPtr hProcess, out long lpProcessAffinityMask,
             out long lpSystemAffinityMask);
+
+        [DllImport("kernel32.dll")]
+        public static extern IntPtr GetConsoleWindow();
+
+        [DllImport("user32.dll")]
+        public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
     }
 }

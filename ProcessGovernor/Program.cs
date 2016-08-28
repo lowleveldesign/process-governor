@@ -1,4 +1,5 @@
-﻿using Microsoft.Win32;
+﻿using LowLevelDesign.Win32;
+using Microsoft.Win32;
 using NDesk.Options;
 using System;
 using System.Collections.Generic;
@@ -6,6 +7,7 @@ using System.Globalization;
 using System.IO;
 using System.Reflection;
 using System.Security.Principal;
+using System.Text;
 
 namespace LowLevelDesign
 {
@@ -16,32 +18,34 @@ namespace LowLevelDesign
             using (var procgov = new ProcessGovernor()) {
                 List<string> procargs = null;
                 bool showhelp = false;
+                bool nogui = false;
                 int pid = 0;
                 RegistryOperation registryOperation = RegistryOperation.NONE;
 
                 var p = new OptionSet()
                 {
-                { "m|maxmem=", "Max committed memory usage in bytes (accepted suffixes: K, M or G).",
-                    v => { procgov.MaxProcessMemory = ParseMemoryString(v); } },
-                { "env=", "A text file with environment variables (each line in form: VAR=VAL). Applies only to newly created processes.",
-                    v => LoadCustomEnvironmentVariables(procgov, v) },
-                { "c|cpu=", "If in hex (starts with 0x) it is treated as an affinity mask, otherwise it is a number of CPU cores assigned to your app.",
-                    v => {
-                        if (v.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) {
-                            procgov.CpuAffinityMask = long.Parse(v, NumberStyles.AllowHexSpecifier | NumberStyles.HexNumber);
-                        } else {
-                            procgov.CpuAffinityMask = CalculateAffinityMaskFromCpuCount(int.Parse(v));
-                        }
-                    }},
-                { "p|pid=", "Attach to an already running process", (int v) => pid = v },
-                { "install", "Installs procgov as a debugger for a specific process using Image File Executions.",
-                    v => { registryOperation = RegistryOperation.INSTALL; } },
-                { "uninstall", "Uninstalls procgov for a specific process.",
-                    v => { registryOperation = RegistryOperation.UNINSTALL; } },
-                { "h|help", "Show this message and exit", v => showhelp = v != null },
-                { "?", "Show this message and exit", v => showhelp = v != null }
-            };
-
+                    { "m|maxmem=", "Max committed memory usage in bytes (accepted suffixes: K, M or G).",
+                        v => { procgov.MaxProcessMemory = ParseMemoryString(v); } },
+                    { "env=", "A text file with environment variables (each line in form: VAR=VAL). Applies only to newly created processes.",
+                        v => LoadCustomEnvironmentVariables(procgov, v) },
+                    { "c|cpu=", "If in hex (starts with 0x) it is treated as an affinity mask, otherwise it is a number of CPU cores assigned to your app.",
+                        v => {
+                            if (v.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) {
+                                procgov.CpuAffinityMask = long.Parse(v.Substring(2), NumberStyles.HexNumber);
+                            } else {
+                                procgov.CpuAffinityMask = CalculateAffinityMaskFromCpuCount(int.Parse(v));
+                            }
+                        }},
+                    { "nogui", "Hide Process Governor console window (set always when installed as debugger).",
+                        v => { nogui = v != null; } },
+                    { "p|pid=", "Attach to an already running process", (int v) => pid = v },
+                    { "install", "Installs procgov as a debugger for a specific process using Image File Executions.",
+                        v => { registryOperation = RegistryOperation.INSTALL; } },
+                    { "uninstall", "Uninstalls procgov for a specific process.",
+                        v => { registryOperation = RegistryOperation.UNINSTALL; } },
+                    { "h|help", "Show this message and exit", v => showhelp = v != null },
+                    { "?", "Show this message and exit", v => showhelp = v != null }
+                };
 
                 try {
                     procargs = p.Parse(args);
@@ -65,7 +69,7 @@ namespace LowLevelDesign
                         Console.WriteLine("ERROR: please provide an image name for a process you would like to intercept.");
                         return;
                     }
-                    SetupRegistryForProcessGovernor(procargs[0], registryOperation);
+                    SetupRegistryForProcessGovernor(procgov, procargs[0], registryOperation);
                     return;
                 }
 
@@ -80,6 +84,10 @@ namespace LowLevelDesign
                     return;
                 }
 
+                if (nogui) {
+                    ApiMethods.ShowWindow(ApiMethods.GetConsoleWindow(), ApiMethods.SW_HIDE);
+                }
+
                 if (pid > 0) {
                     procgov.AttachToProcess(pid);
                 } else {
@@ -88,7 +96,7 @@ namespace LowLevelDesign
             }
         }
 
-        static uint ParseMemoryString(string v)
+        public static uint ParseMemoryString(string v)
         {
             if (v == null) {
                 return 0;
@@ -105,7 +113,7 @@ namespace LowLevelDesign
             return uint.Parse(v);
         }
 
-        static void LoadCustomEnvironmentVariables(ProcessGovernor procgov, string file)
+        public static void LoadCustomEnvironmentVariables(ProcessGovernor procgov, string file)
         {
             if (file == null || !File.Exists(file)) {
                 throw new ArgumentException("the text file with environment variables does not exist");
@@ -115,12 +123,17 @@ namespace LowLevelDesign
                     int linenum = 1;
                     string line;
                     while ((line = reader.ReadLine()) != null) {
-                        var kv = line.TrimStart().Split(new[] { '=' }, StringSplitOptions.RemoveEmptyEntries);
-                        if (kv.Length != 2) {
-                            throw new ArgumentException(string.Format("the environment file contains invalid data (line: {0})", linenum));
+                        var ind = line.IndexOf("=");
+                        if (ind > 0) {
+                            var key = line.Substring(0, ind).Trim();
+                            if (!string.IsNullOrEmpty(key)) {
+                                var val = line.Substring(ind + 1, line.Length - ind - 1).Trim();
+                                procgov.AdditionalEnvironmentVars.Add(key, val);
+                                linenum++;
+                                continue;
+                            }
                         }
-                        procgov.AddEnvironmentVariable(kv[0], kv[1]);
-                        linenum++;
+                        throw new ArgumentException(string.Format("the environment file contains invalid data (line: {0})", linenum));
                     }
                 }
             } catch (IOException ex) {
@@ -133,7 +146,14 @@ namespace LowLevelDesign
             Console.WriteLine("Usage: procgov [OPTIONS] args");
             Console.WriteLine();
             Console.WriteLine("Options:");
+            Console.WriteLine("--------");
             p.WriteOptionDescriptions(Console.Out);
+            Console.WriteLine();
+            Console.WriteLine("EXAMPLES:");
+            Console.WriteLine("---------");
+            Console.WriteLine("Limit memory of a test.exe process to 2MB:");
+            Console.WriteLine("> procgov --maxmem 2M test.exe");
+            Console.WriteLine("FIXME");
         }
 
         public static long CalculateAffinityMaskFromCpuCount(int cpuCount)
@@ -146,20 +166,22 @@ namespace LowLevelDesign
             return mask;
         }
 
-        private static bool IsUserAdmin() {
+        private static bool IsUserAdmin()
+        {
             WindowsIdentity identity = WindowsIdentity.GetCurrent();
             WindowsPrincipal principal = new WindowsPrincipal(identity);
             return principal.IsInRole(WindowsBuiltInRole.Administrator);
         }
 
-        private enum RegistryOperation
+        public enum RegistryOperation
         {
             INSTALL,
             UNINSTALL,
             NONE
         }
 
-        private static void SetupRegistryForProcessGovernor(String appImageExe, RegistryOperation oper) {
+        public static void SetupRegistryForProcessGovernor(ProcessGovernor procgov, string appImageExe, RegistryOperation oper)
+        {
             if (!IsUserAdmin()) {
                 Console.WriteLine("You must be admin to do that. Run the app from the administrative console.");
                 return;
@@ -170,10 +192,49 @@ namespace LowLevelDesign
             // add to image file execution path
             if (oper == RegistryOperation.INSTALL) {
                 regkey = regkey.CreateSubKey(appImageExe);
-                regkey.SetValue("Debugger", Assembly.GetExecutingAssembly().Location);
+                regkey.SetValue("Debugger", PrepareDebuggerCommandString(procgov, appImageExe));
             } else if (oper == RegistryOperation.UNINSTALL) {
                 regkey.DeleteSubKey(appImageExe, false);
+
+                var appEnvironmentFilePath = GetAppEnvironmentFilePath(appImageExe);
+                if (File.Exists(appEnvironmentFilePath)) {
+                    File.Delete(appEnvironmentFilePath);
+                }
             }
-}
+        }
+
+        public static string PrepareDebuggerCommandString(ProcessGovernor procgov, string appImageExe)
+        {
+            var buffer = new StringBuilder();
+            var procgovPath = Assembly.GetExecutingAssembly().Location;
+            buffer.Append('"').Append(procgovPath).Append('"').Append(" --nogui");
+
+            if (procgov.AdditionalEnvironmentVars.Count > 0) {
+                // we will create a file in the procgov folder with the environment variables 
+                string appEnvironmentFilePath = GetAppEnvironmentFilePath(appImageExe);
+                using (var writer = new StreamWriter(appEnvironmentFilePath, false)) {
+                    foreach (var kv in procgov.AdditionalEnvironmentVars) {
+                        writer.WriteLine("{0}={1}", kv.Key, kv.Value);
+                    }
+                }
+                buffer.AppendFormat(" --env=\"{0}\"", appEnvironmentFilePath);
+            }
+
+            if (procgov.CpuAffinityMask != 0) {
+                buffer.AppendFormat(" --cpu=0x{0:X}", procgov.CpuAffinityMask);
+            }
+
+            if (procgov.MaxProcessMemory > 0) {
+                buffer.AppendFormat(" --maxmem={0}", procgov.MaxProcessMemory);
+            }
+
+            return buffer.ToString();
+        }
+
+        public static string GetAppEnvironmentFilePath(string appImageExe)
+        {
+            var procgovPath = Assembly.GetExecutingAssembly().Location;
+            return Path.Combine(Path.GetDirectoryName(procgovPath), appImageExe + ".env");
+        }
     }
 }
