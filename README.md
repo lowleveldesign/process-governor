@@ -43,7 +43,7 @@ With the **--cpu** switch you may control on which cores your application will r
 
 A CPU usage graph on my machine looks as follows:
 
-![cpu-equals-2](docs\cpuaffinity-equals-2.png)
+![cpu-equals-2](https://raw.githubusercontent.com/lowleveldesign/process-governor/master/docs/cpuaffinity-equals-2.png)
 
 In a second we set the CPU affinity mask (with the hex notation):
 
@@ -53,7 +53,7 @@ In a second we set the CPU affinity mask (with the hex notation):
 
 A CPU graph in this case looks as follows (notice only the second core is used):
 
-![cpu-equals-0x2](docs\cpuaffinity-equals-0x2.png)
+![cpu-equals-0x2](https://raw.githubusercontent.com/lowleveldesign/process-governor/master/docs/cpuaffinity-equals-0x2.png)
 
 ## Set additional environment variables for a process
 
