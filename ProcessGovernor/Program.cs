@@ -210,7 +210,7 @@ namespace LowLevelDesign
         public static string PrepareDebuggerCommandString(ProcessGovernor procgov, string appImageExe)
         {
             var buffer = new StringBuilder();
-            var procgovPath = Assembly.GetExecutingAssembly().Location;
+            var procgovPath = Assembly.GetAssembly(typeof(ProcessGovernor)).Location;
             buffer.Append('"').Append(procgovPath).Append('"').Append(" --nogui --debugger");
 
             if (procgov.AdditionalEnvironmentVars.Count > 0) {
@@ -237,7 +237,7 @@ namespace LowLevelDesign
 
         public static string GetAppEnvironmentFilePath(string appImageExe)
         {
-            var procgovPath = Assembly.GetExecutingAssembly().Location;
+            var procgovPath = Assembly.GetAssembly(typeof(ProcessGovernor)).Location;
             return Path.Combine(Path.GetDirectoryName(procgovPath), appImageExe + ".env");
         }
     }
