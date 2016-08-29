@@ -84,13 +84,54 @@
     <Compile Include="ProcessGovernor.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="Win32.cs" />
+    <Compile Include="Win32\Jobs\NativeMethods.cs" />
+    <Compile Include="Win32\ComPtr.cs" />
+    <Compile Include="Win32\Constants.cs" />
+    <Compile Include="Win32\Debugging\CONTINUE_STATUS.cs" />
+    <Compile Include="Win32\Debugging\CREATE_PROCESS_DEBUG_INFO.cs" />
+    <Compile Include="Win32\Debugging\CREATE_THREAD_DEBUG_INFO.cs" />
+    <Compile Include="Win32\Debugging\DEBUG_EVENT.cs" />
+    <Compile Include="Win32\Debugging\DEBUG_EVENT_CODE.cs" />
+    <Compile Include="Win32\Debugging\EXCEPTION_DEBUG_INFO.cs" />
+    <Compile Include="Win32\Debugging\EXCEPTION_RECORD.cs" />
+    <Compile Include="Win32\Debugging\EXIT_PROCESS_DEBUG_INFO.cs" />
+    <Compile Include="Win32\Debugging\EXIT_THREAD_DEBUG_INFO.cs" />
+    <Compile Include="Win32\Debugging\LOAD_DLL_DEBUG_INFO.cs" />
+    <Compile Include="Win32\Debugging\NativeMethods.cs" />
+    <Compile Include="Win32\Debugging\OUTPUT_DEBUG_STRING_INFO.cs" />
+    <Compile Include="Win32\Debugging\PTHREAD_START_ROUTINE.cs" />
+    <Compile Include="Win32\Debugging\RIP_INFO.cs" />
+    <Compile Include="Win32\Debugging\UNLOAD_DLL_DEBUG_INFO.cs" />
+    <Compile Include="Win32\Handles\NativeMethods.cs" />
+    <Compile Include="Win32\HResults.cs" />
+    <Compile Include="Win32\Interop\SecurityAttributes.cs" />
+    <Compile Include="Win32\Jobs\IO_COUNTERS.cs" />
+    <Compile Include="Win32\Jobs\JobInformationLimitFlags.cs" />
+    <Compile Include="Win32\Jobs\JobMsgInfoMessages.cs" />
+    <Compile Include="Win32\Jobs\JOBOBJECTINFOCLASS.cs" />
+    <Compile Include="Win32\Jobs\JOBOBJECT_ASSOCIATE_COMPLETION_PORT.cs" />
+    <Compile Include="Win32\Jobs\JOBOBJECT_BASIC_LIMIT_INFORMATION.cs" />
+    <Compile Include="Win32\Jobs\JOBOBJECT_EXTENDED_LIMIT_INFORMATION.cs" />
+    <Compile Include="Win32\LastWin32ErrorException.cs" />
+    <Compile Include="Win32\NtStatus.cs" />
+    <Compile Include="Win32\Processes\NativeEnums.cs" />
+    <Compile Include="Win32\Processes\NativeMethods.cs" />
+    <Compile Include="Win32\Processes\NativeStructs.cs" />
+    <Compile Include="Win32\Processes\ProcessCreationFlags.cs" />
+    <Compile Include="Win32\Processes\PROCESS_INFORMATION.cs" />
+    <Compile Include="Win32\Processes\SafeProcessHandle.cs" />
+    <Compile Include="Win32\Processes\SafeThreadHandle.cs" />
+    <Compile Include="Win32\Processes\Startupinfo.cs" />
+    <Compile Include="Win32\UnicodeString.cs" />
+    <Compile Include="Win32\Windows\NativeMethods.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="app.config" />
     <None Include="packages.config" />
     <None Include="README.md" />
+    <None Include="Win32\vschromium-LICENSE" />
   </ItemGroup>
+  <ItemGroup />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.

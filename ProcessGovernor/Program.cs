@@ -1,5 +1,4 @@
-﻿using LowLevelDesign.Win32;
-using Microsoft.Win32;
+﻿using Microsoft.Win32;
 using NDesk.Options;
 using System;
 using System.Collections.Generic;
@@ -8,6 +7,7 @@ using System.IO;
 using System.Reflection;
 using System.Security.Principal;
 using System.Text;
+using WinWindows = LowLevelDesign.Win32.Windows;
 
 namespace LowLevelDesign
 {
@@ -17,8 +17,7 @@ namespace LowLevelDesign
         {
             using (var procgov = new ProcessGovernor()) {
                 List<string> procargs = null;
-                bool showhelp = false;
-                bool nogui = false;
+                bool showhelp = false, nogui = false, debug = false;
                 int pid = 0;
                 RegistryOperation registryOperation = RegistryOperation.NONE;
 
@@ -43,6 +42,8 @@ namespace LowLevelDesign
                         v => { registryOperation = RegistryOperation.INSTALL; } },
                     { "uninstall", "Uninstalls procgov for a specific process.",
                         v => { registryOperation = RegistryOperation.UNINSTALL; } },
+                    { "debugger", "Internal - do not use.",
+                        v => { debug = v != null; } },
                     { "h|help", "Show this message and exit", v => showhelp = v != null },
                     { "?", "Show this message and exit", v => showhelp = v != null }
                 };
@@ -85,7 +86,8 @@ namespace LowLevelDesign
                 }
 
                 if (nogui) {
-                    ApiMethods.ShowWindow(ApiMethods.GetConsoleWindow(), ApiMethods.SW_HIDE);
+                    WinWindows.NativeMethods.ShowWindow(WinWindows.NativeMethods.GetConsoleWindow(), 
+                        WinWindows.NativeMethods.SW_HIDE);
                 }
 
                 if (pid > 0) {
@@ -207,7 +209,7 @@ namespace LowLevelDesign
         {
             var buffer = new StringBuilder();
             var procgovPath = Assembly.GetExecutingAssembly().Location;
-            buffer.Append('"').Append(procgovPath).Append('"').Append(" --nogui");
+            buffer.Append('"').Append(procgovPath).Append('"').Append(" --nogui --debugger");
 
             if (procgov.AdditionalEnvironmentVars.Count > 0) {
                 // we will create a file in the procgov folder with the environment variables 

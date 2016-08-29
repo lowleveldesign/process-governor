@@ -1,4 +1,3 @@
-using LowLevelDesign.Win32;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -6,6 +5,11 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using VsChromium.Core.Win32;
+using WinHandles = VsChromium.Core.Win32.Handles;
+using WinProcesses = VsChromium.Core.Win32.Processes;
+using WinJobs = LowLevelDesign.Win32.Jobs;
+using WinInterop = VsChromium.Core.Win32.Interop;
 
 namespace LowLevelDesign
 {
@@ -16,11 +20,12 @@ namespace LowLevelDesign
         private readonly Dictionary<string, string> additionalEnvironmentVars = new Dictionary<string, string>();
         private Thread listener;
 
-        private IntPtr hProcess, hIOCP, hJob;
+        private WinProcesses.SafeProcessHandle hProcess;
+        private IntPtr hIOCP, hJob;
 
         public void AttachToProcess(int pid)
         {
-            hProcess = CheckResult(ApiMethods.OpenProcess(ProcessAccessFlags.AllAccess, false, pid));
+            hProcess = CheckResult(WinProcesses.NativeMethods.OpenProcess(WinProcesses.ProcessAccessFlags.All, false, pid));
 
             AssignProcessToJobObject();
 
@@ -29,19 +34,19 @@ namespace LowLevelDesign
 
         public void StartProcess(IList<string> procargs)
         {
-            PROCESS_INFORMATION pi;
-            STARTUPINFO si = new STARTUPINFO();
+            WinProcesses.PROCESS_INFORMATION pi = new WinProcesses.PROCESS_INFORMATION();
+            WinProcesses.STARTUPINFO si = new WinProcesses.STARTUPINFO();
 
-            CheckResult(ApiMethods.CreateProcess(null, String.Join(" ", procargs), IntPtr.Zero, IntPtr.Zero, false,
-                        CreateProcessFlags.CREATE_SUSPENDED | CreateProcessFlags.CREATE_NEW_CONSOLE,
-                        GetEnvironmentString(), null, ref si, out pi));
+            CheckResult(WinProcesses.NativeMethods.CreateProcess(null, new StringBuilder(string.Join(" ", procargs)), null, null, false,
+                        WinProcesses.ProcessCreationFlags.CREATE_SUSPENDED | WinProcesses.ProcessCreationFlags.CREATE_NEW_CONSOLE,
+                        GetEnvironmentString(), null, si, pi));
 
-            hProcess = pi.hProcess;
+            hProcess = new WinProcesses.SafeProcessHandle(pi.hProcess);
 
             AssignProcessToJobObject();
 
             // resume process main thread
-            CheckResult(ApiMethods.ResumeThread(pi.hThread));
+            CheckResult(WinProcesses.NativeMethods.ResumeThread(pi.hThread));
             // and we can close the thread handle
             CloseHandle(pi.hThread);
 
@@ -73,57 +78,57 @@ namespace LowLevelDesign
 
         void AssignProcessToJobObject()
         {
-                var securityAttributes = new SECURITY_ATTRIBUTES();
+                var securityAttributes = new WinInterop.SecurityAttributes();
                 securityAttributes.nLength = Marshal.SizeOf(securityAttributes);
 
-                hJob = CheckResult(ApiMethods.CreateJobObject(ref securityAttributes, "procgov-" + Guid.NewGuid()));
+                hJob = CheckResult(WinJobs.NativeMethods.CreateJobObject(securityAttributes, "procgov-" + Guid.NewGuid()));
 
                 // create completion port
-                hIOCP = CheckResult(ApiMethods.CreateIoCompletionPort(ApiMethods.INVALID_HANDLE_VALUE, IntPtr.Zero, IntPtr.Zero, 1));
-                var assocInfo = new JOBOBJECT_ASSOCIATE_COMPLETION_PORT {
+                hIOCP = CheckResult(WinJobs.NativeMethods.CreateIoCompletionPort(WinHandles.NativeMethods.INVALID_HANDLE_VALUE, IntPtr.Zero, IntPtr.Zero, 1));
+                var assocInfo = new WinJobs.JOBOBJECT_ASSOCIATE_COMPLETION_PORT {
                     CompletionKey = IntPtr.Zero,
                     CompletionPort = hIOCP
                 };
                 uint size = (uint)Marshal.SizeOf(assocInfo);
-                CheckResult(ApiMethods.SetInformationJobObject(hJob, JOBOBJECTINFOCLASS.AssociateCompletionPortInformation,
+                CheckResult(WinJobs.NativeMethods.SetInformationJobObject(hJob, WinJobs.JOBOBJECTINFOCLASS.AssociateCompletionPortInformation,
                         ref assocInfo, size));
 
                 // start listening thread
                 listener = new Thread(CompletionPortListener);
                 listener.Start(hIOCP);
 
-                JobInformationLimitFlags flags = JobInformationLimitFlags.JOB_OBJECT_LIMIT_BREAKAWAY_OK
-                                        | JobInformationLimitFlags.JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK;
+                WinJobs.JobInformationLimitFlags flags = WinJobs.JobInformationLimitFlags.JOB_OBJECT_LIMIT_BREAKAWAY_OK
+                                        | WinJobs.JobInformationLimitFlags.JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK;
                 if (maxProcessMemory > 0) {
-                    flags |= JobInformationLimitFlags.JOB_OBJECT_LIMIT_PROCESS_MEMORY;
+                    flags |= WinJobs.JobInformationLimitFlags.JOB_OBJECT_LIMIT_PROCESS_MEMORY;
                 }
                 if (cpuAffinityMask != 0) {
-                    flags |= JobInformationLimitFlags.JOB_OBJECT_LIMIT_AFFINITY;
+                    flags |= WinJobs.JobInformationLimitFlags.JOB_OBJECT_LIMIT_AFFINITY;
                 }
 
                 long systemAffinity, processAffinity;
-                CheckResult(ApiMethods.GetProcessAffinityMask(hProcess, out processAffinity, out systemAffinity));
+                CheckResult(WinProcesses.NativeMethods.GetProcessAffinityMask(hProcess, out processAffinity, out systemAffinity));
 
                 // configure constraints
-                var limitInfo = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
-                    BasicLimitInformation = new JOBOBJECT_BASIC_LIMIT_INFORMATION {
+                var limitInfo = new WinJobs.JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
+                    BasicLimitInformation = new WinJobs.JOBOBJECT_BASIC_LIMIT_INFORMATION {
                         LimitFlags = flags,
                         Affinity = systemAffinity & cpuAffinityMask
                     },
                     ProcessMemoryLimit = maxProcessMemory
                 };
                 size = (uint)Marshal.SizeOf(limitInfo);
-                CheckResult(ApiMethods.SetInformationJobObject(hJob, JOBOBJECTINFOCLASS.ExtendedLimitInformation,
+                CheckResult(WinJobs.NativeMethods.SetInformationJobObject(hJob, WinJobs.JOBOBJECTINFOCLASS.ExtendedLimitInformation,
                         ref limitInfo, size));
 
                 // assign a process to a job to apply constraints
-                CheckResult(ApiMethods.AssignProcessToJobObject(hJob, hProcess));
+                CheckResult(WinJobs.NativeMethods.AssignProcessToJobObject(hJob, hProcess.DangerousGetHandle()));
         }
 
         void WaitForTheChildProcess()
         {
 
-            if (ApiMethods.WaitForSingleObject(hProcess, ApiMethods.INFINITE) == 0xFFFFFFFF) {
+            if (WinHandles.NativeMethods.WaitForSingleObject(hProcess, Constants.INFINITE) == 0xFFFFFFFF) {
                 throw new Win32Exception();
             }
 
@@ -142,16 +147,16 @@ namespace LowLevelDesign
             uint msgIdentifier;
             IntPtr pCompletionKey, lpOverlapped;
 
-            while (ApiMethods.GetQueuedCompletionStatus(hIOCP, out msgIdentifier, out pCompletionKey,
-                        out lpOverlapped, ApiMethods.INFINITE)) {
-                if (msgIdentifier == (uint)JobMsgInfoMessages.JOB_OBJECT_MSG_NEW_PROCESS) {
+            while (WinJobs.NativeMethods.GetQueuedCompletionStatus(hIOCP, out msgIdentifier, out pCompletionKey,
+                        out lpOverlapped, Constants.INFINITE)) {
+                if (msgIdentifier == (uint)WinJobs.JobMsgInfoMessages.JOB_OBJECT_MSG_NEW_PROCESS) {
                     Trace.TraceInformation("{0}: process {1} has started", msgIdentifier, (int)lpOverlapped);
-                } else if (msgIdentifier == (uint)JobMsgInfoMessages.JOB_OBJECT_MSG_EXIT_PROCESS ||
-                    msgIdentifier == (uint)JobMsgInfoMessages.JOB_OBJECT_MSG_ABNORMAL_EXIT_PROCESS) {
+                } else if (msgIdentifier == (uint)WinJobs.JobMsgInfoMessages.JOB_OBJECT_MSG_EXIT_PROCESS ||
+                    msgIdentifier == (uint)WinJobs.JobMsgInfoMessages.JOB_OBJECT_MSG_ABNORMAL_EXIT_PROCESS) {
                     Trace.TraceInformation("{0}: process {1} exited", msgIdentifier, (int)lpOverlapped);
-                } else if (msgIdentifier == (uint)JobMsgInfoMessages.JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO) {
+                } else if (msgIdentifier == (uint)WinJobs.JobMsgInfoMessages.JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO) {
                     // nothing
-                } else if (msgIdentifier == (uint)JobMsgInfoMessages.JOB_OBJECT_MSG_PROCESS_MEMORY_LIMIT) {
+                } else if (msgIdentifier == (uint)WinJobs.JobMsgInfoMessages.JOB_OBJECT_MSG_PROCESS_MEMORY_LIMIT) {
                     Trace.TraceInformation("{0}: process {1} exceeded its memory limit", msgIdentifier, (int)lpOverlapped);
                 } else {
                     Trace.TraceInformation("Unknown message: {0}", msgIdentifier);
@@ -178,9 +183,12 @@ namespace LowLevelDesign
 
         public void Dispose(bool disposing)
         {
-            if (hProcess != IntPtr.Zero) {
-                CloseHandle(hProcess);
+            if (disposing) {
+                if (hProcess != null && !hProcess.IsClosed) {
+                    hProcess.Close();
+                }
             }
+
             if (hJob != IntPtr.Zero) {
                 CloseHandle(hJob);
             }
@@ -202,7 +210,7 @@ namespace LowLevelDesign
         private static void CloseHandle(IntPtr handle)
         {
             if (handle != IntPtr.Zero) {
-                ApiMethods.CloseHandle(handle);
+                WinHandles.NativeMethods.CloseHandle(handle);
             }
         }
 
@@ -219,6 +227,14 @@ namespace LowLevelDesign
                 throw new Win32Exception();
             }
             return result;
+        }
+
+        private static T CheckResult<T>(T handle) where T : SafeHandle
+        {
+            if (handle.IsInvalid) {
+                throw new Win32Exception();
+            }
+            return handle;
         }
 
         private static void CheckResult(int result)
