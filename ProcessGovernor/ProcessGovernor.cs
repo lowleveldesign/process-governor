@@ -10,6 +10,7 @@ using WinHandles = VsChromium.Core.Win32.Handles;
 using WinProcesses = VsChromium.Core.Win32.Processes;
 using WinJobs = LowLevelDesign.Win32.Jobs;
 using WinInterop = VsChromium.Core.Win32.Interop;
+using WinDebug = VsChromium.Core.Win32.Debugging;
 
 namespace LowLevelDesign
 {
@@ -53,6 +54,28 @@ namespace LowLevelDesign
             WaitForTheChildProcess();
         }
 
+        public void StartProcessUnderDebuggerAndDetach(IList<string> procargs)
+        {
+            WinProcesses.PROCESS_INFORMATION pi = new WinProcesses.PROCESS_INFORMATION();
+            WinProcesses.STARTUPINFO si = new WinProcesses.STARTUPINFO();
+
+            CheckResult(WinProcesses.NativeMethods.CreateProcess(null, new StringBuilder(string.Join(" ", procargs)), null, null, false,
+                        WinProcesses.ProcessCreationFlags.CREATE_NEW_CONSOLE | WinProcesses.ProcessCreationFlags.DEBUG_ONLY_THIS_PROCESS,
+                        GetEnvironmentString(), null, si, pi));
+
+            hProcess = new WinProcesses.SafeProcessHandle(pi.hProcess);
+            CheckResult(WinDebug.NativeMethods.DebugSetProcessKillOnExit(false));
+
+            AssignProcessToJobObject();
+
+            // resume process main thread by detaching from the debuggee
+            CheckResult(WinDebug.NativeMethods.DebugActiveProcessStop(pi.dwProcessId));
+            // and we can close the thread handle
+            CloseHandle(pi.hThread);
+
+            WaitForTheChildProcess();
+        }
+
         private StringBuilder GetEnvironmentString()
         {
             if (additionalEnvironmentVars.Count == 0) {
@@ -78,51 +101,51 @@ namespace LowLevelDesign
 
         void AssignProcessToJobObject()
         {
-                var securityAttributes = new WinInterop.SecurityAttributes();
-                securityAttributes.nLength = Marshal.SizeOf(securityAttributes);
+            var securityAttributes = new WinInterop.SecurityAttributes();
+            securityAttributes.nLength = Marshal.SizeOf(securityAttributes);
 
-                hJob = CheckResult(WinJobs.NativeMethods.CreateJobObject(securityAttributes, "procgov-" + Guid.NewGuid()));
+            hJob = CheckResult(WinJobs.NativeMethods.CreateJobObject(securityAttributes, "procgov-" + Guid.NewGuid()));
 
-                // create completion port
-                hIOCP = CheckResult(WinJobs.NativeMethods.CreateIoCompletionPort(WinHandles.NativeMethods.INVALID_HANDLE_VALUE, IntPtr.Zero, IntPtr.Zero, 1));
-                var assocInfo = new WinJobs.JOBOBJECT_ASSOCIATE_COMPLETION_PORT {
-                    CompletionKey = IntPtr.Zero,
-                    CompletionPort = hIOCP
-                };
-                uint size = (uint)Marshal.SizeOf(assocInfo);
-                CheckResult(WinJobs.NativeMethods.SetInformationJobObject(hJob, WinJobs.JOBOBJECTINFOCLASS.AssociateCompletionPortInformation,
-                        ref assocInfo, size));
+            // create completion port
+            hIOCP = CheckResult(WinJobs.NativeMethods.CreateIoCompletionPort(WinHandles.NativeMethods.INVALID_HANDLE_VALUE, IntPtr.Zero, IntPtr.Zero, 1));
+            var assocInfo = new WinJobs.JOBOBJECT_ASSOCIATE_COMPLETION_PORT {
+                CompletionKey = IntPtr.Zero,
+                CompletionPort = hIOCP
+            };
+            uint size = (uint)Marshal.SizeOf(assocInfo);
+            CheckResult(WinJobs.NativeMethods.SetInformationJobObject(hJob, WinJobs.JOBOBJECTINFOCLASS.AssociateCompletionPortInformation,
+                    ref assocInfo, size));
 
-                // start listening thread
-                listener = new Thread(CompletionPortListener);
-                listener.Start(hIOCP);
+            // start listening thread
+            listener = new Thread(CompletionPortListener);
+            listener.Start(hIOCP);
 
-                WinJobs.JobInformationLimitFlags flags = WinJobs.JobInformationLimitFlags.JOB_OBJECT_LIMIT_BREAKAWAY_OK
-                                        | WinJobs.JobInformationLimitFlags.JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK;
-                if (maxProcessMemory > 0) {
-                    flags |= WinJobs.JobInformationLimitFlags.JOB_OBJECT_LIMIT_PROCESS_MEMORY;
-                }
-                if (cpuAffinityMask != 0) {
-                    flags |= WinJobs.JobInformationLimitFlags.JOB_OBJECT_LIMIT_AFFINITY;
-                }
+            WinJobs.JobInformationLimitFlags flags = WinJobs.JobInformationLimitFlags.JOB_OBJECT_LIMIT_BREAKAWAY_OK
+                                    | WinJobs.JobInformationLimitFlags.JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK;
+            if (maxProcessMemory > 0) {
+                flags |= WinJobs.JobInformationLimitFlags.JOB_OBJECT_LIMIT_PROCESS_MEMORY;
+            }
+            if (cpuAffinityMask != 0) {
+                flags |= WinJobs.JobInformationLimitFlags.JOB_OBJECT_LIMIT_AFFINITY;
+            }
 
-                long systemAffinity, processAffinity;
-                CheckResult(WinProcesses.NativeMethods.GetProcessAffinityMask(hProcess, out processAffinity, out systemAffinity));
+            long systemAffinity, processAffinity;
+            CheckResult(WinProcesses.NativeMethods.GetProcessAffinityMask(hProcess, out processAffinity, out systemAffinity));
 
-                // configure constraints
-                var limitInfo = new WinJobs.JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
-                    BasicLimitInformation = new WinJobs.JOBOBJECT_BASIC_LIMIT_INFORMATION {
-                        LimitFlags = flags,
-                        Affinity = systemAffinity & cpuAffinityMask
-                    },
-                    ProcessMemoryLimit = maxProcessMemory
-                };
-                size = (uint)Marshal.SizeOf(limitInfo);
-                CheckResult(WinJobs.NativeMethods.SetInformationJobObject(hJob, WinJobs.JOBOBJECTINFOCLASS.ExtendedLimitInformation,
-                        ref limitInfo, size));
+            // configure constraints
+            var limitInfo = new WinJobs.JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
+                BasicLimitInformation = new WinJobs.JOBOBJECT_BASIC_LIMIT_INFORMATION {
+                    LimitFlags = flags,
+                    Affinity = systemAffinity & cpuAffinityMask
+                },
+                ProcessMemoryLimit = maxProcessMemory
+            };
+            size = (uint)Marshal.SizeOf(limitInfo);
+            CheckResult(WinJobs.NativeMethods.SetInformationJobObject(hJob, WinJobs.JOBOBJECTINFOCLASS.ExtendedLimitInformation,
+                    ref limitInfo, size));
 
-                // assign a process to a job to apply constraints
-                CheckResult(WinJobs.NativeMethods.AssignProcessToJobObject(hJob, hProcess.DangerousGetHandle()));
+            // assign a process to a job to apply constraints
+            CheckResult(WinJobs.NativeMethods.AssignProcessToJobObject(hJob, hProcess.DangerousGetHandle()));
         }
 
         void WaitForTheChildProcess()

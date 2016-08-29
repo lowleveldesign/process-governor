@@ -25,6 +25,8 @@ Options:
   -?                         Show this message and exit
 ```
 
+**REMEMBER to always use procgov with the same bitness as your application.**
+
 You may set limits on a newly created process or on an already running one. To **attach to a process** use the **-p|--pid** switch, eg. `procgov --maxmem 40M --pid 1234`. To **start a new process** with the limits applied, just pass the process image path and its arguments as procgov arguments, eg. `procgov --maxmem 40M c:\temp\test.exe arg1 arg2"`.
 
 Finally, it is possible to **run procgov always when a given process starts**. When you use the **--install** switch Process Governor will add a special key to the **Image File Execution Options** in the registry, so that it will always start before your chosen process. To install Process Governor for a test.exe process, use the following command: `procgov --install --maxmem 40M test.exe`. You may later remove this installation by using the **--uninstall** switch, eg. `procgov --uninstall test.exe`.

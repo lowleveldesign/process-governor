@@ -90,7 +90,9 @@ namespace LowLevelDesign
                         WinWindows.NativeMethods.SW_HIDE);
                 }
 
-                if (pid > 0) {
+                if (debug) {
+                    procgov.StartProcessUnderDebuggerAndDetach(procargs);
+                } else if (pid > 0) {
                     procgov.AttachToProcess(pid);
                 } else {
                     procgov.StartProcess(procargs);
