@@ -155,9 +155,15 @@ namespace LowLevelDesign
             Console.WriteLine();
             Console.WriteLine("EXAMPLES:");
             Console.WriteLine("---------");
-            Console.WriteLine("Limit memory of a test.exe process to 2MB:");
-            Console.WriteLine("> procgov --maxmem 2M test.exe");
-            Console.WriteLine("FIXME");
+            Console.WriteLine("Limit memory of a test.exe process to 200MB:");
+            Console.WriteLine("> procgov --maxmem 200M test.exe");
+            Console.WriteLine();
+            Console.WriteLine("Limit CPU usage of a test.exe process to first three CPU cores:");
+            Console.WriteLine("> procgov --cpu 3 test.exe");
+            Console.WriteLine();
+            Console.WriteLine("Always run a test.exe process only on the first three CPU cores:");
+            Console.WriteLine("> procgov --install --cpu 3 test.exe");
+            Console.WriteLine();
         }
 
         public static long CalculateAffinityMaskFromCpuCount(int cpuCount)
