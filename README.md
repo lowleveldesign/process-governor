@@ -50,7 +50,7 @@ A CPU usage graph on my machine looks as follows:
 In a second we set the CPU affinity mask (with the hex notation):
 
 ```
-> procgov --cpu=2 TestLimit.exe
+> procgov --cpu=0x2 TestLimit.exe
 ```
 
 A CPU graph in this case looks as follows (notice only the second core is used):
