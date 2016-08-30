@@ -147,14 +147,16 @@ namespace LowLevelDesign
 
         static void ShowHelp(OptionSet p)
         {
+            Console.WriteLine("Process Governor v{0} - allows you to set limits on your processes", 
+                Assembly.GetExecutingAssembly().GetName().Version.ToString());
+            Console.WriteLine("Copyright (C) 2016 Sebastian Solnica (@lowleveldesign)");
+            Console.WriteLine();
             Console.WriteLine("Usage: procgov [OPTIONS] args");
             Console.WriteLine();
             Console.WriteLine("Options:");
-            Console.WriteLine("--------");
             p.WriteOptionDescriptions(Console.Out);
             Console.WriteLine();
             Console.WriteLine("EXAMPLES:");
-            Console.WriteLine("---------");
             Console.WriteLine("Limit memory of a test.exe process to 200MB:");
             Console.WriteLine("> procgov --maxmem 200M test.exe");
             Console.WriteLine();

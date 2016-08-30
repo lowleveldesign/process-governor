@@ -5,7 +5,7 @@ function Update-AssemblyInfoVersionFiles
 
   Write-Host "Executing Update-AssemblyInfoVersionFiles in path $srcPath for build $buildNumber"
 
-  foreach ($file in $(Get-ChildItem $srcPath GlobalVersion.cs -recurse))
+  foreach ($file in $(Get-ChildItem $srcPath AssemblyInfo.cs -recurse))
   {
     $local:r = [regex]"AssemblyFileVersion\(""([0-9]+\.[0-9]+)(\.([0-9]+|\*))+""\)"
     $local:assemblyVersion = "0.0.0.0"
