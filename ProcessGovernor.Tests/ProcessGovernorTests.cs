@@ -71,7 +71,7 @@ namespace LowLevelDesign
             procgov.AdditionalEnvironmentVars.Add("TEST", "TESTVAL");
             procgov.AdditionalEnvironmentVars.Add("TEST2", "TESTVAL2");
 
-            var appImageExe = @"C:\temp\test.exe";
+            var appImageExe = Path.GetFileName(@"C:\temp\test.exe");
             var debugger = Program.PrepareDebuggerCommandString(procgov, appImageExe);
 
             var envFilePath = Program.GetAppEnvironmentFilePath(appImageExe);
