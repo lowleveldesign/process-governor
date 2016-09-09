@@ -62,7 +62,7 @@ namespace LowLevelDesign
         {
             var pi = new WinProcesses.PROCESS_INFORMATION();
             var si = new WinProcesses.STARTUPINFO();
-            var processCreationFlags = WinProcesses.ProcessCreationFlags.CREATE_SUSPENDED;
+            var processCreationFlags = WinProcesses.ProcessCreationFlags.DEBUG_ONLY_THIS_PROCESS;
             if (spawnNewConsoleWindow) {
                 processCreationFlags |= WinProcesses.ProcessCreationFlags.CREATE_NEW_CONSOLE;
             }
