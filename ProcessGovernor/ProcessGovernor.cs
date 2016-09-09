@@ -138,7 +138,7 @@ namespace LowLevelDesign
                     LimitFlags = flags,
                     Affinity = systemAffinity & cpuAffinityMask
                 },
-                ProcessMemoryLimit = maxProcessMemory
+                ProcessMemoryLimit = (UIntPtr)maxProcessMemory
             };
             size = (uint)Marshal.SizeOf(limitInfo);
             CheckResult(WinJobs.NativeMethods.SetInformationJobObject(hJob, WinJobs.JOBOBJECTINFOCLASS.ExtendedLimitInformation,

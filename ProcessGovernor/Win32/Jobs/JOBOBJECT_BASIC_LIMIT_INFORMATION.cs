@@ -9,8 +9,8 @@ namespace LowLevelDesign.Win32.Jobs
         public Int64 PerProcessUserTimeLimit;
         public Int64 PerJobUserTimeLimit;
         public JobInformationLimitFlags LimitFlags;
-        public uint MinimumWorkingSetSize;
-        public uint MaximumWorkingSetSize;
+        public UIntPtr MinimumWorkingSetSize;
+        public UIntPtr MaximumWorkingSetSize;
         public UInt32 ActiveProcessLimit;
         public Int64 Affinity;
         public UInt32 PriorityClass;

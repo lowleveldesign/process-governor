@@ -1,4 +1,5 @@
-﻿using System.Runtime.InteropServices;
+﻿using System;
+using System.Runtime.InteropServices;
 
 namespace LowLevelDesign.Win32.Jobs
 {
@@ -7,9 +8,9 @@ namespace LowLevelDesign.Win32.Jobs
     {
         public JOBOBJECT_BASIC_LIMIT_INFORMATION BasicLimitInformation;
         public IO_COUNTERS IoInfo;
-        public uint ProcessMemoryLimit;
-        public uint JobMemoryLimit;
-        public uint PeakProcessMemoryUsed;
-        public uint PeakJobMemoryUsed;
+        public UIntPtr ProcessMemoryLimit;
+        public UIntPtr JobMemoryLimit;
+        public UIntPtr PeakProcessMemoryUsed;
+        public UIntPtr PeakJobMemoryUsed;
     }
 }
