@@ -35,6 +35,7 @@ namespace LowLevelDesign
                                 procgov.CpuAffinityMask = CalculateAffinityMaskFromCpuCount(int.Parse(v));
                             }
                         }},
+                    { "newconsole", "Start the process in a new console window.", v => { procgov.SpawnNewConsoleWindow = v != null; } },
                     { "nogui", "Hide Process Governor console window (set always when installed as debugger).",
                         v => { nogui = v != null; } },
                     { "p|pid=", "Attach to an already running process", (int v) => pid = v },

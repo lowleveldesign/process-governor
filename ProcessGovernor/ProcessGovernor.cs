@@ -18,6 +18,7 @@ namespace LowLevelDesign
     {
         private uint maxProcessMemory;
         private long cpuAffinityMask;
+        private bool spawnNewConsoleWindow;
         private readonly Dictionary<string, string> additionalEnvironmentVars = new Dictionary<string, string>();
         private Thread listener;
 
@@ -35,12 +36,15 @@ namespace LowLevelDesign
 
         public void StartProcess(IList<string> procargs)
         {
-            WinProcesses.PROCESS_INFORMATION pi = new WinProcesses.PROCESS_INFORMATION();
-            WinProcesses.STARTUPINFO si = new WinProcesses.STARTUPINFO();
+            var pi = new WinProcesses.PROCESS_INFORMATION();
+            var si = new WinProcesses.STARTUPINFO();
+            var processCreationFlags = WinProcesses.ProcessCreationFlags.CREATE_SUSPENDED;
+            if (spawnNewConsoleWindow) {
+                processCreationFlags |= WinProcesses.ProcessCreationFlags.CREATE_NEW_CONSOLE;
+            }
 
             CheckResult(WinProcesses.NativeMethods.CreateProcess(null, new StringBuilder(string.Join(" ", procargs)), null, null, false,
-                        WinProcesses.ProcessCreationFlags.CREATE_SUSPENDED | WinProcesses.ProcessCreationFlags.CREATE_NEW_CONSOLE,
-                        GetEnvironmentString(), null, si, pi));
+                        processCreationFlags, GetEnvironmentString(), null, si, pi));
 
             hProcess = new WinProcesses.SafeProcessHandle(pi.hProcess);
 
@@ -56,12 +60,15 @@ namespace LowLevelDesign
 
         public void StartProcessUnderDebuggerAndDetach(IList<string> procargs)
         {
-            WinProcesses.PROCESS_INFORMATION pi = new WinProcesses.PROCESS_INFORMATION();
-            WinProcesses.STARTUPINFO si = new WinProcesses.STARTUPINFO();
+            var pi = new WinProcesses.PROCESS_INFORMATION();
+            var si = new WinProcesses.STARTUPINFO();
+            var processCreationFlags = WinProcesses.ProcessCreationFlags.CREATE_SUSPENDED;
+            if (spawnNewConsoleWindow) {
+                processCreationFlags |= WinProcesses.ProcessCreationFlags.CREATE_NEW_CONSOLE;
+            }
 
             CheckResult(WinProcesses.NativeMethods.CreateProcess(null, new StringBuilder(string.Join(" ", procargs)), null, null, false,
-                        WinProcesses.ProcessCreationFlags.CREATE_NEW_CONSOLE | WinProcesses.ProcessCreationFlags.DEBUG_ONLY_THIS_PROCESS,
-                        GetEnvironmentString(), null, si, pi));
+                        processCreationFlags, GetEnvironmentString(), null, si, pi));
 
             hProcess = new WinProcesses.SafeProcessHandle(pi.hProcess);
             CheckResult(WinDebug.NativeMethods.DebugSetProcessKillOnExit(false));
@@ -197,6 +204,12 @@ namespace LowLevelDesign
         {
             get { return cpuAffinityMask; }
             set { cpuAffinityMask = value; }
+        }
+
+        public bool SpawnNewConsoleWindow
+        {
+            get { return spawnNewConsoleWindow; }
+            set { spawnNewConsoleWindow = value; }
         }
 
         public Dictionary<string, string> AdditionalEnvironmentVars
