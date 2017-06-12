@@ -2,6 +2,7 @@
 using NDesk.Options;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Globalization;
 using System.IO;
 using System.Reflection;
@@ -91,12 +92,18 @@ namespace LowLevelDesign
                         WinWindows.NativeMethods.SW_HIDE);
                 }
 
-                if (debug) {
-                    procgov.StartProcessUnderDebuggerAndDetach(procargs);
-                } else if (pid > 0) {
-                    procgov.AttachToProcess(pid);
-                } else {
-                    procgov.StartProcess(procargs);
+                try {
+                    if (debug) {
+                        procgov.StartProcessUnderDebuggerAndDetach(procargs);
+                    } else if (pid > 0) {
+                        procgov.AttachToProcess(pid);
+                    } else {
+                        procgov.StartProcess(procargs);
+                    }
+                } catch (Win32Exception ex) {
+                    Console.WriteLine("ERROR: {0} (0x{1:X})", ex.Message, ex.ErrorCode);
+                } catch (Exception ex) {
+                    Console.WriteLine("ERROR: {0}", ex.Message);
                 }
             }
         }
