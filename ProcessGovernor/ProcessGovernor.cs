@@ -19,6 +19,7 @@ namespace LowLevelDesign
         private uint maxProcessMemory;
         private long cpuAffinityMask;
         private bool spawnNewConsoleWindow;
+        private bool propagateOnChildProcesses;
         private readonly Dictionary<string, string> additionalEnvironmentVars = new Dictionary<string, string>();
         private Thread listener;
 
@@ -127,8 +128,11 @@ namespace LowLevelDesign
             listener = new Thread(CompletionPortListener);
             listener.Start(hIOCP);
 
-            WinJobs.JobInformationLimitFlags flags = WinJobs.JobInformationLimitFlags.JOB_OBJECT_LIMIT_BREAKAWAY_OK
-                                    | WinJobs.JobInformationLimitFlags.JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK;
+            WinJobs.JobInformationLimitFlags flags = 0;
+            if (!propagateOnChildProcesses)
+            {
+                flags |= WinJobs.JobInformationLimitFlags.JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK;
+            }
             if (maxProcessMemory > 0) {
                 flags |= WinJobs.JobInformationLimitFlags.JOB_OBJECT_LIMIT_PROCESS_MEMORY;
             }
@@ -194,23 +198,13 @@ namespace LowLevelDesign
             }
         }
 
-        public uint MaxProcessMemory
-        {
-            get { return maxProcessMemory; }
-            set { maxProcessMemory = value; }
-        }
+        public uint MaxProcessMemory { get => maxProcessMemory; set => maxProcessMemory = value; }
 
-        public long CpuAffinityMask
-        {
-            get { return cpuAffinityMask; }
-            set { cpuAffinityMask = value; }
-        }
+        public long CpuAffinityMask { get => cpuAffinityMask; set => cpuAffinityMask = value; }
 
-        public bool SpawnNewConsoleWindow
-        {
-            get { return spawnNewConsoleWindow; }
-            set { spawnNewConsoleWindow = value; }
-        }
+        public bool SpawnNewConsoleWindow { get => spawnNewConsoleWindow; set => spawnNewConsoleWindow = value; }
+
+        public bool PropagateOnChildProcesses { get => propagateOnChildProcesses; set => propagateOnChildProcesses = value; }
 
         public Dictionary<string, string> AdditionalEnvironmentVars
         {
