@@ -4,7 +4,7 @@
 This application allows you to set constraints on a process. It uses [a job object](https://msdn.microsoft.com/en-us/library/windows/desktop/ms684161(v=vs.85).aspx) for this purpose. The available options are:
 
 ```
-Usage: procgov [OPTIONS] [args]
+Usage: procgov [OPTIONS] args
 
 Options:
   -m, --maxmem=VALUE         Max committed memory usage in bytes (accepted
@@ -15,12 +15,15 @@ Options:
   -c, --cpu=VALUE            If in hex (starts with 0x) it is treated as an
                                affinity mask, otherwise it is a number of CPU
                                cores assigned to your app.
+  -r, --recursive            Apply limits to child processes too.
+      --newconsole           Start the process in a new console window.
       --nogui                Hide Process Governor console window (set always
                                when installed as debugger).
   -p, --pid=VALUE            Attach to an already running process
       --install              Installs procgov as a debugger for a specific
                                process using Image File Executions.
       --uninstall            Uninstalls procgov for a specific process.
+      --debugger             Internal - do not use.
   -h, --help                 Show this message and exit
   -?                         Show this message and exit
 ```
