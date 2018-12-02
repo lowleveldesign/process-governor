@@ -41,7 +41,8 @@ namespace LowLevelDesign
                     { "nogui", "Hide Process Governor console window (set always when installed as debugger).",
                         v => { nogui = v != null; } },
                     { "p|pid=", "Attach to an already running process", (int v) => pid = v },
-                    { "install", "Installs procgov as a debugger for a specific process using Image File Executions.",
+                    { "install", "Installs procgov as a debugger for a specific process using Image File Executions. " +
+                                 "DO NOT USE this option if the process you want to control starts child instances of itself (for example, Chrome).",
                         v => { registryOperation = RegistryOperation.INSTALL; } },
                     { "uninstall", "Uninstalls procgov for a specific process.",
                         v => { registryOperation = RegistryOperation.UNINSTALL; } },
