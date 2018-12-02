@@ -21,7 +21,10 @@ Options:
                                when installed as debugger).
   -p, --pid=VALUE            Attach to an already running process
       --install              Installs procgov as a debugger for a specific
-                               process using Image File Executions.
+                               process using Image File Executions. DO NOT USE
+                               this option if the process you want to control
+                               starts child instances of itself (for example,
+                               Chrome).
       --uninstall            Uninstalls procgov for a specific process.
       --debugger             Internal - do not use.
   -h, --help                 Show this message and exit
