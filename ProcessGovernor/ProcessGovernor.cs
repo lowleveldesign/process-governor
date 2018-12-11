@@ -16,7 +16,7 @@ namespace LowLevelDesign
 {
     public class ProcessGovernor : IDisposable
     {
-        private uint maxProcessMemory;
+        private ulong maxProcessMemory;
         private long cpuAffinityMask;
         private bool spawnNewConsoleWindow;
         private bool propagateOnChildProcesses;
@@ -198,7 +198,7 @@ namespace LowLevelDesign
             }
         }
 
-        public uint MaxProcessMemory { get => maxProcessMemory; set => maxProcessMemory = value; }
+        public ulong MaxProcessMemory { get => maxProcessMemory; set => maxProcessMemory = value; }
 
         public long CpuAffinityMask { get => cpuAffinityMask; set => cpuAffinityMask = value; }
 

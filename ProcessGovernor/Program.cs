@@ -110,21 +110,27 @@ namespace LowLevelDesign
             }
         }
 
-        public static uint ParseMemoryString(string v)
+        public static ulong ParseMemoryString(string v)
         {
             if (v == null) {
                 return 0;
             }
+            ulong result;
             if (v.EndsWith("K", StringComparison.OrdinalIgnoreCase)) {
-                return uint.Parse(v.Substring(0, v.Length - 1)) << 10;
+                result = ulong.Parse(v.Substring(0, v.Length - 1)) << 10;
+            } else if (v.EndsWith("M", StringComparison.OrdinalIgnoreCase)) {
+                result = ulong.Parse(v.Substring(0, v.Length - 1)) << 20;
+            } else if (v.EndsWith("G", StringComparison.OrdinalIgnoreCase)) {
+                result = ulong.Parse(v.Substring(0, v.Length - 1)) << 30;
+            } else {
+                result = ulong.Parse(v);
             }
-            if (v.EndsWith("M", StringComparison.OrdinalIgnoreCase)) {
-                return uint.Parse(v.Substring(0, v.Length - 1)) << 20;
+            if (IntPtr.Size == 4 && result > uint.MaxValue)
+            {
+                // 32 bit
+                throw new ArgumentException("Memory limit is too high for 32-bit architecture.");
             }
-            if (v.EndsWith("G", StringComparison.OrdinalIgnoreCase)) {
-                return uint.Parse(v.Substring(0, v.Length - 1)) << 30;
-            }
-            return uint.Parse(v);
+            return result;
         }
 
         public static void LoadCustomEnvironmentVariables(ProcessGovernor procgov, string file)
