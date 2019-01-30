@@ -16,15 +16,26 @@ namespace LowLevelDesign
 {
     public class ProcessGovernor : IDisposable
     {
+        private readonly Dictionary<string, string> additionalEnvironmentVars = new Dictionary<string, string>();
+        private readonly TraceSource logger = new TraceSource("[procgov]", SourceLevels.All);
+
         private ulong maxProcessMemory;
         private long cpuAffinityMask;
         private bool spawnNewConsoleWindow;
         private bool propagateOnChildProcesses;
-        private readonly Dictionary<string, string> additionalEnvironmentVars = new Dictionary<string, string>();
-        private Thread listener;
+        private uint processUserTimeLimitInMilliseconds;
+        private uint jobUserTimeLimitInMilliseconds;
+        private uint clockTimeLimitInMilliseconds;
 
         private WinProcesses.SafeProcessHandle hProcess;
         private IntPtr hIOCP, hJob;
+        private Stopwatch processRunningTime = new Stopwatch();
+
+        public ProcessGovernor()
+        {
+            // remove default listeners (-v to enable console traces)
+            logger.Listeners.Clear();
+        }
 
         public void AttachToProcess(int pid)
         {
@@ -32,7 +43,7 @@ namespace LowLevelDesign
 
             AssignProcessToJobObject();
 
-            WaitForTheChildProcess();
+            WaitForTheJobToComplete();
         }
 
         public void StartProcess(IList<string> procargs)
@@ -56,7 +67,7 @@ namespace LowLevelDesign
             // and we can close the thread handle
             CloseHandle(pi.hThread);
 
-            WaitForTheChildProcess();
+            WaitForTheJobToComplete();
         }
 
         public void StartProcessUnderDebuggerAndDetach(IList<string> procargs)
@@ -81,7 +92,7 @@ namespace LowLevelDesign
             // and we can close the thread handle
             CloseHandle(pi.hThread);
 
-            WaitForTheChildProcess();
+            WaitForTheJobToComplete();
         }
 
         private StringBuilder GetEnvironmentString()
@@ -124,10 +135,6 @@ namespace LowLevelDesign
             CheckResult(WinJobs.NativeMethods.SetInformationJobObject(hJob, WinJobs.JOBOBJECTINFOCLASS.AssociateCompletionPortInformation,
                     ref assocInfo, size));
 
-            // start listening thread
-            listener = new Thread(CompletionPortListener);
-            listener.Start(hIOCP);
-
             WinJobs.JobInformationLimitFlags flags = 0;
             if (!propagateOnChildProcesses)
             {
@@ -139,6 +146,12 @@ namespace LowLevelDesign
             if (cpuAffinityMask != 0) {
                 flags |= WinJobs.JobInformationLimitFlags.JOB_OBJECT_LIMIT_AFFINITY;
             }
+            if (processUserTimeLimitInMilliseconds > 0) {
+                flags |= WinJobs.JobInformationLimitFlags.JOB_OBJECT_LIMIT_PROCESS_TIME;
+            }
+            if (jobUserTimeLimitInMilliseconds > 0) {
+                flags |= WinJobs.JobInformationLimitFlags.JOB_OBJECT_LIMIT_JOB_TIME;
+            }
 
             long systemAffinity, processAffinity;
             CheckResult(WinProcesses.NativeMethods.GetProcessAffinityMask(hProcess, out processAffinity, out systemAffinity));
@@ -147,7 +160,9 @@ namespace LowLevelDesign
             var limitInfo = new WinJobs.JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
                 BasicLimitInformation = new WinJobs.JOBOBJECT_BASIC_LIMIT_INFORMATION {
                     LimitFlags = flags,
-                    Affinity = systemAffinity & cpuAffinityMask
+                    Affinity = systemAffinity & cpuAffinityMask,
+                    PerProcessUserTimeLimit = 10_000 * processUserTimeLimitInMilliseconds, // in 100ns
+                    PerJobUserTimeLimit = 10_000 * jobUserTimeLimitInMilliseconds // in 100ns
                 },
                 ProcessMemoryLimit = (UIntPtr)maxProcessMemory
             };
@@ -157,44 +172,69 @@ namespace LowLevelDesign
 
             // assign a process to a job to apply constraints
             CheckResult(WinJobs.NativeMethods.AssignProcessToJobObject(hJob, hProcess.DangerousGetHandle()));
-        }
 
-        void WaitForTheChildProcess()
-        {
-
-            if (WinHandles.NativeMethods.WaitForSingleObject(hProcess, Constants.INFINITE) == 0xFFFFFFFF) {
-                throw new Win32Exception();
-            }
-
-            if (hIOCP != IntPtr.Zero) {
-                CloseHandle(hIOCP);
-            }
-            if (listener.IsAlive) {
-                if (!listener.Join(TimeSpan.FromMilliseconds(500))) {
-                    listener.Abort();
-                }
+            // we start counting the process time running under the job 
+            // only if timeout is specified
+            if (clockTimeLimitInMilliseconds > 0) {
+                processRunningTime.Start();
             }
         }
 
-        void CompletionPortListener(object o)
+        void WaitForTheJobToComplete()
         {
             uint msgIdentifier;
             IntPtr pCompletionKey, lpOverlapped;
+            bool shouldTerminate = false;
 
-            while (WinJobs.NativeMethods.GetQueuedCompletionStatus(hIOCP, out msgIdentifier, out pCompletionKey,
-                        out lpOverlapped, Constants.INFINITE)) {
-                if (msgIdentifier == (uint)WinJobs.JobMsgInfoMessages.JOB_OBJECT_MSG_NEW_PROCESS) {
-                    Trace.TraceInformation("{0}: process {1} has started", msgIdentifier, (int)lpOverlapped);
-                } else if (msgIdentifier == (uint)WinJobs.JobMsgInfoMessages.JOB_OBJECT_MSG_EXIT_PROCESS ||
-                    msgIdentifier == (uint)WinJobs.JobMsgInfoMessages.JOB_OBJECT_MSG_ABNORMAL_EXIT_PROCESS) {
-                    Trace.TraceInformation("{0}: process {1} exited", msgIdentifier, (int)lpOverlapped);
-                } else if (msgIdentifier == (uint)WinJobs.JobMsgInfoMessages.JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO) {
-                    // nothing
-                } else if (msgIdentifier == (uint)WinJobs.JobMsgInfoMessages.JOB_OBJECT_MSG_PROCESS_MEMORY_LIMIT) {
-                    Trace.TraceInformation("{0}: process {1} exceeded its memory limit", msgIdentifier, (int)lpOverlapped);
+            while (!shouldTerminate) {
+                if (!WinJobs.NativeMethods.GetQueuedCompletionStatus(hIOCP, out msgIdentifier, 
+                        out pCompletionKey, out lpOverlapped, 100 /* ms */)) {
+                    if (Marshal.GetLastWin32Error() == 735 /* ERROR_ABANDONED_WAIT_0 */) {
+                        throw new Win32Exception();
+                    }
+                    // otherwise timeout
+                    if (clockTimeLimitInMilliseconds > 0 &&
+                        processRunningTime.ElapsedMilliseconds > clockTimeLimitInMilliseconds) {
+                        logger.TraceEvent(TraceEventType.Information, 0, "Clock time limit passed - terminating.");
+                        WinJobs.NativeMethods.TerminateJobObject(hJob, 1);
+                        shouldTerminate = true;
+                    }
                 } else {
-                    Trace.TraceInformation("Unknown message: {0}", msgIdentifier);
+                    shouldTerminate = LogCompletionPacketAndCheckIfTerminating(msgIdentifier, lpOverlapped);
                 }
+            }
+        }
+
+        bool LogCompletionPacketAndCheckIfTerminating(uint msgIdentifier, IntPtr lpOverlapped)
+        {
+            switch (msgIdentifier) {
+                case WinJobs.JobMsgInfoMessages.JOB_OBJECT_MSG_NEW_PROCESS:
+                    logger.TraceEvent(TraceEventType.Information, (int)msgIdentifier, 
+                        "Process {0} has started", (int)lpOverlapped);
+                    return false;
+                case WinJobs.JobMsgInfoMessages.JOB_OBJECT_MSG_EXIT_PROCESS:
+                case WinJobs.JobMsgInfoMessages.JOB_OBJECT_MSG_ABNORMAL_EXIT_PROCESS:
+                    logger.TraceEvent(TraceEventType.Information, (int)msgIdentifier, 
+                        "Process {0} exited", (int)lpOverlapped);
+                    return false;
+                case WinJobs.JobMsgInfoMessages.JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO:
+                    logger.TraceEvent(TraceEventType.Information, (int)msgIdentifier, "no active processes in the job.");
+                    return true; // ALWAYS EXIT - no more processes running in the job
+                case WinJobs.JobMsgInfoMessages.JOB_OBJECT_MSG_PROCESS_MEMORY_LIMIT:
+                    logger.TraceEvent(TraceEventType.Information, (int)msgIdentifier, 
+                        "Process {0} exceeded its memory limit", (int)lpOverlapped);
+                    return !propagateOnChildProcesses; // EXIT when single process - we hit the process memory limit
+                case WinJobs.JobMsgInfoMessages.JOB_OBJECT_MSG_END_OF_PROCESS_TIME:
+                    logger.TraceEvent(TraceEventType.Information, (int)msgIdentifier, 
+                        "Process {0} exceeded its user-mode execution limit", (int)lpOverlapped);
+                    return !propagateOnChildProcesses; // EXIT when single process - we hit the process user-time limit
+                case WinJobs.JobMsgInfoMessages.JOB_OBJECT_MSG_END_OF_JOB_TIME:
+                    logger.TraceEvent(TraceEventType.Information, (int)msgIdentifier, 
+                        "Job exceeded its user-mode execution limit");
+                    return true; // ALWAYS EXIT - we hit the job user-time limit
+                default:
+                    Trace.TraceInformation("Unknown message: {0}", msgIdentifier);
+                    return false;
             }
         }
 
@@ -205,6 +245,27 @@ namespace LowLevelDesign
         public bool SpawnNewConsoleWindow { get => spawnNewConsoleWindow; set => spawnNewConsoleWindow = value; }
 
         public bool PropagateOnChildProcesses { get => propagateOnChildProcesses; set => propagateOnChildProcesses = value; }
+
+        public uint ProcessUserTimeLimitInMilliseconds {
+            get => processUserTimeLimitInMilliseconds; set => processUserTimeLimitInMilliseconds = value;
+        }
+
+        public uint JobUserTimeLimitInMilliseconds {
+            get => jobUserTimeLimitInMilliseconds; set => jobUserTimeLimitInMilliseconds = value;
+        }
+
+        public uint ClockTimeLimitInMilliseconds {
+            get => clockTimeLimitInMilliseconds;
+            set => clockTimeLimitInMilliseconds = value;
+        }
+
+        public bool ShowTraceMessages {
+            set {
+                if (value) {
+                    logger.Listeners.Add(new ConsoleTraceListener());
+                }
+            }
+        }
 
         public Dictionary<string, string> AdditionalEnvironmentVars
         {
@@ -219,9 +280,8 @@ namespace LowLevelDesign
                 }
             }
 
-            if (hJob != IntPtr.Zero) {
-                CloseHandle(hJob);
-            }
+            CloseHandle(hIOCP);
+            CloseHandle(hJob);
         }
 
         public void Dispose()

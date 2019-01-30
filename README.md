@@ -15,18 +15,32 @@ Options:
   -c, --cpu=VALUE            If in hex (starts with 0x) it is treated as an
                                affinity mask, otherwise it is a number of CPU
                                cores assigned to your app.
-  -r, --recursive            Apply limits to child processes too.
+  -r, --recursive            Apply limits to child processes too (will wait
+                               for all processes to finish).
       --newconsole           Start the process in a new console window.
       --nogui                Hide Process Governor console window (set always
                                when installed as debugger).
   -p, --pid=VALUE            Attach to an already running process
-      --install              Installs procgov as a debugger for a specific
+      --install              Install procgov as a debugger for a specific
                                process using Image File Executions. DO NOT USE
                                this option if the process you want to control
                                starts child instances of itself (for example,
                                Chrome).
-      --uninstall            Uninstalls procgov for a specific process.
+  -t, --timeout=VALUE        Kill the process (with -r, also all its
+                               children) if it does not finish within the
+                               specified time. Add suffix to define the time
+                               unit. Valid suffixes are: ms, s, m, h.
+      --process-utime=VALUE  Kill the process (with -r, also applies to its
+                               children) if it exceeds the given user-mode
+                               execution time. Add suffix to define the time
+                               unit. Valid suffixes are: ms, s, m, h.
+      --job-utime=VALUE      Kill the process (with -r, also all its
+                               children) if the total user-mode execution time
+                               exceed the specified value. Add suffix to define
+                               the time unit. Valid suffixes are: ms, s, m, h.
+      --uninstall            Uninstall procgov for a specific process.
       --debugger             Internal - do not use.
+  -v, --verbose              Show verbose messages in the console.
   -h, --help                 Show this message and exit
   -?                         Show this message and exit
 ```
@@ -62,6 +76,14 @@ In a second we set the CPU affinity mask (with the hex notation):
 A CPU graph in this case looks as follows (notice only the second core is used):
 
 ![cpu-equals-0x2](https://raw.githubusercontent.com/lowleveldesign/process-governor/master/docs/cpuaffinity-equals-0x2.png)
+
+## Limit the execution time of the process (clock time)
+
+With the **--timeout** option you may define the maximum time (clock time) the process can run before procgov terminates it. If the **--recursive** option is set and the timeout passes, progov will terminate also all the process children started from the beginning of the monitoring session.
+
+## Limit the user-mode execution time
+
+The **--process-utime** and **--job-utime** options allow you to set a limit on the maximum user-mode execution time for a process (with the **--recursive** option also all its children) or a job. The latter case will make sense with the **--recursive** option as it will set a limit on the total user-mode execution time for the process and its children.
 
 ## Set additional environment variables for a process
 

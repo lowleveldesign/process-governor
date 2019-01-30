@@ -62,6 +62,17 @@ namespace LowLevelDesign
         }
 
         [Fact]
+        public void ParseTimeStringToMillisecondsTest()
+        {
+            Assert.Equal(10u, Program.ParseTimeStringToMilliseconds("10"));
+            Assert.Equal(10u, Program.ParseTimeStringToMilliseconds("10ms"));
+            Assert.Equal(10000u, Program.ParseTimeStringToMilliseconds("10s"));
+            Assert.Equal(600000u, Program.ParseTimeStringToMilliseconds("10m"));
+            Assert.Equal(36000000u, Program.ParseTimeStringToMilliseconds("10h"));
+            Assert.Throws<FormatException>(() => Program.ParseTimeStringToMilliseconds("sdfms"));
+        }
+
+        [Fact]
         public void PrepareDebuggerCommandStringTest()
         {
             var procgov = new ProcessGovernor() {
