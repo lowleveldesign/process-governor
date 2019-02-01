@@ -33,7 +33,7 @@ namespace LowLevelDesign
 
                 var procgov = new ProcessGovernor();
                 Program.LoadCustomEnvironmentVariables(procgov, envVarsFile);
-                Assert.Equal<KeyValuePair<string, string>>(new Dictionary<string, string>() {
+                Assert.Equal<KeyValuePair<string, string>>(new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) {
                     { "TEST", "TESTVAL" },
                     { "TEST2", "TEST VAL2" }
                 }, procgov.AdditionalEnvironmentVars);

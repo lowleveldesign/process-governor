@@ -45,6 +45,11 @@ namespace VsChromium.Core.Win32.Processes {
     /// 
     /// This flag cannot be used with DETACHED_PROCESS.
     /// </summary>
-    CREATE_NEW_CONSOLE = 0x00000010
+    CREATE_NEW_CONSOLE = 0x00000010,
+    /// <summary>
+    /// If this flag is set, the environment block pointed to by lpEnvironment uses Unicode characters.
+    /// Otherwise, the environment block uses ANSI characters.
+    /// </summary>
+    CREATE_UNICODE_ENVIRONMENT = 0x00000400,
   }
 }

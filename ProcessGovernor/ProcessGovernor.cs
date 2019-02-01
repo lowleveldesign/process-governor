@@ -16,7 +16,7 @@ namespace LowLevelDesign
 {
     public class ProcessGovernor : IDisposable
     {
-        private readonly Dictionary<string, string> additionalEnvironmentVars = new Dictionary<string, string>();
+        private readonly Dictionary<string, string> additionalEnvironmentVars = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         private readonly TraceSource logger = new TraceSource("[procgov]", SourceLevels.All);
 
         private ulong maxProcessMemory;
@@ -50,7 +50,7 @@ namespace LowLevelDesign
         {
             var pi = new WinProcesses.PROCESS_INFORMATION();
             var si = new WinProcesses.STARTUPINFO();
-            var processCreationFlags = WinProcesses.ProcessCreationFlags.CREATE_SUSPENDED;
+            var processCreationFlags = WinProcesses.ProcessCreationFlags.CREATE_UNICODE_ENVIRONMENT | WinProcesses.ProcessCreationFlags.CREATE_SUSPENDED;
             if (spawnNewConsoleWindow) {
                 processCreationFlags |= WinProcesses.ProcessCreationFlags.CREATE_NEW_CONSOLE;
             }
@@ -74,7 +74,7 @@ namespace LowLevelDesign
         {
             var pi = new WinProcesses.PROCESS_INFORMATION();
             var si = new WinProcesses.STARTUPINFO();
-            var processCreationFlags = WinProcesses.ProcessCreationFlags.DEBUG_ONLY_THIS_PROCESS;
+            var processCreationFlags = WinProcesses.ProcessCreationFlags.CREATE_UNICODE_ENVIRONMENT | WinProcesses.ProcessCreationFlags.DEBUG_ONLY_THIS_PROCESS;
             if (spawnNewConsoleWindow) {
                 processCreationFlags |= WinProcesses.ProcessCreationFlags.CREATE_NEW_CONSOLE;
             }
