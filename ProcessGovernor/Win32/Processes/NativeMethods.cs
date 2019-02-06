@@ -79,5 +79,8 @@ namespace VsChromium.Core.Win32.Processes
 
         [DllImport("kernel32.dll", SetLastError = true)]
         public static extern int ResumeThread(IntPtr hThread);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool GetExitCodeProcess(SafeProcessHandle hProcess, out int lpExitCode);
     }
 }

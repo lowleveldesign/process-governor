@@ -4,13 +4,11 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Threading;
-using VsChromium.Core.Win32;
-using WinHandles = VsChromium.Core.Win32.Handles;
-using WinProcesses = VsChromium.Core.Win32.Processes;
-using WinJobs = LowLevelDesign.Win32.Jobs;
-using WinInterop = VsChromium.Core.Win32.Interop;
 using WinDebug = VsChromium.Core.Win32.Debugging;
+using WinHandles = VsChromium.Core.Win32.Handles;
+using WinInterop = VsChromium.Core.Win32.Interop;
+using WinJobs = LowLevelDesign.Win32.Jobs;
+using WinProcesses = VsChromium.Core.Win32.Processes;
 
 namespace LowLevelDesign
 {
@@ -37,16 +35,16 @@ namespace LowLevelDesign
             logger.Listeners.Clear();
         }
 
-        public void AttachToProcess(int pid)
+        public int AttachToProcess(int pid)
         {
             hProcess = CheckResult(WinProcesses.NativeMethods.OpenProcess(WinProcesses.ProcessAccessFlags.All, false, pid));
 
             AssignProcessToJobObject();
 
-            WaitForTheJobToComplete();
+            return WaitForTheJobToComplete();
         }
 
-        public void StartProcess(IList<string> procargs)
+        public int StartProcess(IList<string> procargs)
         {
             var pi = new WinProcesses.PROCESS_INFORMATION();
             var si = new WinProcesses.STARTUPINFO();
@@ -67,10 +65,10 @@ namespace LowLevelDesign
             // and we can close the thread handle
             CloseHandle(pi.hThread);
 
-            WaitForTheJobToComplete();
+            return WaitForTheJobToComplete();
         }
 
-        public void StartProcessUnderDebuggerAndDetach(IList<string> procargs)
+        public int StartProcessUnderDebuggerAndDetach(IList<string> procargs)
         {
             var pi = new WinProcesses.PROCESS_INFORMATION();
             var si = new WinProcesses.STARTUPINFO();
@@ -92,7 +90,7 @@ namespace LowLevelDesign
             // and we can close the thread handle
             CloseHandle(pi.hThread);
 
-            WaitForTheJobToComplete();
+            return WaitForTheJobToComplete();
         }
 
         private StringBuilder GetEnvironmentString()
@@ -180,7 +178,7 @@ namespace LowLevelDesign
             }
         }
 
-        void WaitForTheJobToComplete()
+        int WaitForTheJobToComplete()
         {
             uint msgIdentifier;
             IntPtr pCompletionKey, lpOverlapped;
@@ -203,6 +201,16 @@ namespace LowLevelDesign
                     shouldTerminate = LogCompletionPacketAndCheckIfTerminating(msgIdentifier, lpOverlapped);
                 }
             }
+
+            // Get the exit code and return it
+            int masterProcessExitCode;
+            if (WinProcesses.NativeMethods.GetExitCodeProcess(hProcess, out masterProcessExitCode))
+            {
+                // could be STILL_ACTIVE if the process is still running
+                return masterProcessExitCode;
+            }
+            Debug.Fail("Getting the exit code from a process was unsuccesful");
+            return 1;
         }
 
         bool LogCompletionPacketAndCheckIfTerminating(uint msgIdentifier, IntPtr lpOverlapped)

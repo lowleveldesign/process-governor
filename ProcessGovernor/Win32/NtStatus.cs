@@ -2,8 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-namespace VsChromium.Core.Win32 {
-  public static class NtStatus {
-    public const int Success = 0;
-  }
+namespace VsChromium.Core.Win32
+{
+    public static class NtStatus
+    {
+        public const int Success = 0;
+        public const int StillActive = 0x103;
+    }
 }

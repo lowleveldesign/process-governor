@@ -14,7 +14,7 @@ namespace LowLevelDesign
 {
     public static class Program
     {
-        public static void Main(string[] args)
+        public static int Main(string[] args)
         {
             ShowHeader();
 
@@ -83,10 +83,10 @@ namespace LowLevelDesign
                 if (!showhelp && registryOperation != RegistryOperation.NONE) {
                     if (procargs.Count == 0) {
                         Console.WriteLine("ERROR: please provide an image name for a process you would like to intercept.");
-                        return;
+                        return 1;
                     }
                     SetupRegistryForProcessGovernor(procgov, procargs[0], registryOperation);
-                    return;
+                    return 0;
                 }
 
                 if (!showhelp && (procargs.Count == 0 && pid == 0) || (pid > 0 && procargs.Count > 0)) {
@@ -97,7 +97,7 @@ namespace LowLevelDesign
 
                 if (showhelp) {
                     ShowHelp(p);
-                    return;
+                    return 0;
                 }
 
                 if (nogui) {
@@ -109,16 +109,18 @@ namespace LowLevelDesign
                     ShowLimits(procgov);
 
                     if (debug) {
-                        procgov.StartProcessUnderDebuggerAndDetach(procargs);
-                    } else if (pid > 0) {
-                        procgov.AttachToProcess(pid);
-                    } else {
-                        procgov.StartProcess(procargs);
+                        return procgov.StartProcessUnderDebuggerAndDetach(procargs);
                     }
+                    if (pid > 0) {
+                        return procgov.AttachToProcess(pid);
+                    } 
+                    return procgov.StartProcess(procargs);
                 } catch (Win32Exception ex) {
                     Console.WriteLine("ERROR: {0} (0x{1:X})", ex.Message, ex.ErrorCode);
+                    return 1;
                 } catch (Exception ex) {
                     Console.WriteLine("ERROR: {0}", ex.Message);
+                    return 1;
                 }
             }
         }
