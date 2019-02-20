@@ -231,7 +231,7 @@ namespace LowLevelDesign
                 case WinJobs.JobMsgInfoMessages.JOB_OBJECT_MSG_PROCESS_MEMORY_LIMIT:
                     logger.TraceEvent(TraceEventType.Information, (int)msgIdentifier, 
                         "Process {0} exceeded its memory limit", (int)lpOverlapped);
-                    return !propagateOnChildProcesses; // EXIT when single process - we hit the process memory limit
+                    return false;
                 case WinJobs.JobMsgInfoMessages.JOB_OBJECT_MSG_END_OF_PROCESS_TIME:
                     logger.TraceEvent(TraceEventType.Information, (int)msgIdentifier, 
                         "Process {0} exceeded its user-mode execution limit", (int)lpOverlapped);
