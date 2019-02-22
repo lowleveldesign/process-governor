@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Security.Principal;
 using System.Text;
 using WinDebug = VsChromium.Core.Win32.Debugging;
 using WinHandles = VsChromium.Core.Win32.Handles;
@@ -37,7 +38,12 @@ namespace LowLevelDesign
 
         public int AttachToProcess(int pid)
         {
-            hProcess = CheckResult(WinProcesses.NativeMethods.OpenProcess(WinProcesses.ProcessAccessFlags.All, false, pid));
+            using (new DebugPrivilege(logger))
+            {
+                hProcess = CheckResult(WinProcesses.NativeMethods.OpenProcess(
+                    WinProcesses.ProcessAccessFlags.ProcessSetQuota | WinProcesses.ProcessAccessFlags.ProcessTerminate |
+                    WinProcesses.ProcessAccessFlags.QueryInformation, false, pid));
+            }
 
             AssignProcessToJobObject();
 
