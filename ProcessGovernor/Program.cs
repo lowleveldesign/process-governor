@@ -66,23 +66,23 @@ namespace LowLevelDesign
                 try {
                     procargs = p.Parse(args);
                 } catch (OptionException ex) {
-                    Console.Write("ERROR: invalid argument");
-                    Console.WriteLine(ex.Message);
+                    Console.Error.Write("ERROR: invalid argument");
+                    Console.Error.WriteLine(ex.Message);
                     Console.WriteLine();
                     showhelp = true;
                 } catch (FormatException) {
-                    Console.WriteLine("ERROR: invalid number in one of the constraints");
+                    Console.Error.WriteLine("ERROR: invalid number in one of the constraints");
                     Console.WriteLine();
                     showhelp = true;
                 } catch (ArgumentException ex) {
-                    Console.WriteLine("ERROR: {0}", ex.Message);
+                    Console.Error.WriteLine("ERROR: {0}", ex.Message);
                     Console.WriteLine();
                     showhelp = true;
                 }
 
                 if (!showhelp && registryOperation != RegistryOperation.NONE) {
                     if (procargs.Count == 0) {
-                        Console.WriteLine("ERROR: please provide an image name for a process you would like to intercept.");
+                        Console.Error.WriteLine("ERROR: please provide an image name for a process you would like to intercept.");
                         return 1;
                     }
                     SetupRegistryForProcessGovernor(procgov, procargs[0], registryOperation);
@@ -90,7 +90,7 @@ namespace LowLevelDesign
                 }
 
                 if (!showhelp && (procargs.Count == 0 && pid == 0) || (pid > 0 && procargs.Count > 0)) {
-                    Console.WriteLine("ERROR: please provide either process name or PID of the already running process");
+                    Console.Error.WriteLine("ERROR: please provide either process name or PID of the already running process");
                     Console.WriteLine();
                     showhelp = true;
                 }
@@ -116,10 +116,10 @@ namespace LowLevelDesign
                     } 
                     return procgov.StartProcess(procargs);
                 } catch (Win32Exception ex) {
-                    Console.WriteLine("ERROR: {0} (0x{1:X})", ex.Message, ex.ErrorCode);
+                    Console.Error.WriteLine("ERROR: {0} (0x{1:X})", ex.Message, ex.ErrorCode);
                     return 1;
                 } catch (Exception ex) {
-                    Console.WriteLine("ERROR: {0}", ex.Message);
+                    Console.Error.WriteLine("ERROR: {0}", ex.Message);
                     return 1;
                 }
             }
@@ -273,7 +273,7 @@ namespace LowLevelDesign
         public static void SetupRegistryForProcessGovernor(ProcessGovernor procgov, string appImageExe, RegistryOperation oper)
         {
             if (!IsUserAdmin()) {
-                Console.WriteLine("You must be admin to do that. Run the app from the administrative console.");
+                Console.Error.WriteLine("You must be admin to do that. Run the app from the administrative console.");
                 return;
             }
             // extrace image.exe if path is provided
