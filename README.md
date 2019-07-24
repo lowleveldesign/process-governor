@@ -1,8 +1,6 @@
 
 # Process Governor
 
-[![Build status](https://lowleveldesign.visualstudio.com/Github/_apis/build/status/Process%20Governer%20-%20make%20release)](https://lowleveldesign.visualstudio.com/Github/_build/latest?definitionId=3)
-
 This application allows you to set constraints on a process. It uses [a job object](https://msdn.microsoft.com/en-us/library/windows/desktop/ms684161(v=vs.85).aspx) for this purpose. The available options are:
 
 ```
