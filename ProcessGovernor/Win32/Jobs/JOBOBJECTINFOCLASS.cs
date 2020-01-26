@@ -2,12 +2,12 @@
 {
     public enum JOBOBJECTINFOCLASS
     {
-        AssociateCompletionPortInformation = 7,
-        BasicLimitInformation = 2,
-        BasicUIRestrictions = 4,
-        EndOfJobTimeInformation = 6,
-        ExtendedLimitInformation = 9,
-        SecurityLimitInformation = 5,
-        GroupInformation = 11
+        JobObjectAssociateCompletionPortInformation = 7,
+        JobObjectBasicLimitInformation = 2,
+        JobObjectBasicUIRestrictions = 4,
+        JobObjectEndOfJobTimeInformation = 6,
+        JobObjectExtendedLimitInformation = 9,
+        JobObjectGroupInformation = 11,
+        JobObjectGroupInformationEx = 14
     }
 }

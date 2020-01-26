@@ -30,6 +30,8 @@ namespace LowLevelDesign
                         v => { procgov.MaxProcessMemory = ParseMemoryString(v); } },
                     { "env=", "A text file with environment variables (each line in form: VAR=VAL). Applies only to newly created processes.",
                         v => LoadCustomEnvironmentVariables(procgov, v) },
+                    { "n|node=", "The preferred NUMA node for the process.", 
+                        v => procgov.ProcessorGroup = short.Parse(v) },
                     { "c|cpu=", "If in hex (starts with 0x) it is treated as an affinity mask, otherwise it is a number of CPU cores assigned to your app.",
                         v => {
                             if (v.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) {
