@@ -31,11 +31,12 @@ namespace LowLevelDesign
                     { "env=", "A text file with environment variables (each line in form: VAR=VAL). Applies only to newly created processes.",
                         v => LoadCustomEnvironmentVariables(procgov, v) },
                     { "n|node=", "The preferred NUMA node for the process.", 
-                        v => procgov.ProcessorGroup = short.Parse(v) },
-                    { "c|cpu=", "If in hex (starts with 0x) it is treated as an affinity mask, otherwise it is a number of CPU cores assigned to your app.",
+                        v => procgov.NumaNode = ushort.Parse(v) },
+                    { "c|cpu=", "If in hex (starts with 0x) it is treated as an affinity mask, otherwise it is a number of CPU cores assigned to your app. " +
+                        "If you also provide the NUMA node, this setting will apply only to this node.",
                         v => {
                             if (v.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) {
-                                procgov.CpuAffinityMask = long.Parse(v.Substring(2), NumberStyles.HexNumber);
+                                procgov.CpuAffinityMask = ulong.Parse(v.Substring(2), NumberStyles.HexNumber);
                             } else {
                                 procgov.CpuAffinityMask = CalculateAffinityMaskFromCpuCount(int.Parse(v));
                             }
@@ -106,8 +107,9 @@ namespace LowLevelDesign
                     WinWindows.NativeMethods.ShowWindow(WinWindows.NativeMethods.GetConsoleWindow(), 
                         WinWindows.NativeMethods.SW_HIDE);
                 }
-
+#if !DEBUG
                 try {
+#endif
                     ShowLimits(procgov);
 
                     if (debug) {
@@ -117,6 +119,7 @@ namespace LowLevelDesign
                         return procgov.AttachToProcess(pid);
                     } 
                     return procgov.StartProcess(procargs);
+#if !DEBUG
                 } catch (Win32Exception ex) {
                     Console.Error.WriteLine("ERROR: {0} (0x{1:X})", ex.Message, ex.ErrorCode);
                     return 1;
@@ -124,6 +127,7 @@ namespace LowLevelDesign
                     Console.Error.WriteLine("ERROR: {0}", ex.Message);
                     return 1;
                 }
+#endif
             }
         }
 
@@ -232,6 +236,8 @@ namespace LowLevelDesign
                 $"0x{procgov.CpuAffinityMask:X}" : "(not set)");
             Console.WriteLine("Maximum committed memory (MB):          {0}", procgov.MaxProcessMemory > 0 ?
                 $"{(procgov.MaxProcessMemory / 1048576):0,0}" : "(not set)");
+            Console.WriteLine("Preferred NUMA node:                    {0}", procgov.NumaNode != 0xffff ? 
+                $"{procgov.NumaNode}" : "(not set)");
             Console.WriteLine("Process user-time execution limit (ms): {0}", procgov.ProcessUserTimeLimitInMilliseconds > 0 ?
                 $"{procgov.ProcessUserTimeLimitInMilliseconds:0,0}" : "(not set)");
             Console.WriteLine("Job user-time execution limit (ms):     {0}", procgov.JobUserTimeLimitInMilliseconds > 0 ?
@@ -248,9 +254,9 @@ namespace LowLevelDesign
             Console.WriteLine();
         }
 
-        public static long CalculateAffinityMaskFromCpuCount(int cpuCount)
+        public static ulong CalculateAffinityMaskFromCpuCount(int cpuCount)
         {
-            long mask = 0;
+            ulong mask = 0;
             for (int i = 0; i < cpuCount; i++) {
                 mask <<= 1;
                 mask |= 0x1;

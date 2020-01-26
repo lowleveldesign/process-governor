@@ -12,9 +12,12 @@ Options:
       --env=VALUE            A text file with environment variables (each
                                line in form: VAR=VAL). Applies only to newly
                                created processes.
+  -n, --node=VALUE           The preferred NUMA node for the process.
   -c, --cpu=VALUE            If in hex (starts with 0x) it is treated as an
                                affinity mask, otherwise it is a number of CPU
-                               cores assigned to your app.
+                               cores assigned to your app. If you also provide
+                               the NUMA node, this setting will apply only to
+                               this node.
   -r, --recursive            Apply limits to child processes too (will wait
                                for all processes to finish).
       --newconsole           Start the process in a new console window.

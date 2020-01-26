@@ -9,6 +9,7 @@ using WinHandles = VsChromium.Core.Win32.Handles;
 using WinInterop = VsChromium.Core.Win32.Interop;
 using WinJobs = LowLevelDesign.Win32.Jobs;
 using WinProcesses = VsChromium.Core.Win32.Processes;
+using NUMA = LowLevelDesign.Win32.NUMA;
 
 namespace LowLevelDesign
 {
@@ -20,8 +21,8 @@ namespace LowLevelDesign
         private readonly TraceSource logger = new TraceSource("[procgov]", SourceLevels.All);
 
         private ulong maxProcessMemory;
-        private short processorGroup;
-        private long cpuAffinityMask;
+        private ushort numaNode = 0xffff;
+        private ulong cpuAffinityMask;
         private bool spawnNewConsoleWindow;
         private bool propagateOnChildProcesses;
         private uint processUserTimeLimitInMilliseconds;
@@ -40,8 +41,7 @@ namespace LowLevelDesign
 
         public int AttachToProcess(int pid)
         {
-            using (new DebugPrivilege(logger))
-            {
+            using (new DebugPrivilege(logger)) {
                 hProcess = CheckResult(WinProcesses.NativeMethods.OpenProcess(
                     WinProcesses.ProcessAccessFlags.ProcessSetQuota | WinProcesses.ProcessAccessFlags.ProcessTerminate |
                     WinProcesses.ProcessAccessFlags.QueryInformation, false, pid));
@@ -58,8 +58,7 @@ namespace LowLevelDesign
             var si = new WinProcesses.STARTUPINFO();
             var processCreationFlags = WinProcesses.ProcessCreationFlags.CREATE_UNICODE_ENVIRONMENT |
                                        WinProcesses.ProcessCreationFlags.CREATE_SUSPENDED;
-            if (spawnNewConsoleWindow)
-            {
+            if (spawnNewConsoleWindow) {
                 processCreationFlags |= WinProcesses.ProcessCreationFlags.CREATE_NEW_CONSOLE;
             }
 
@@ -85,8 +84,7 @@ namespace LowLevelDesign
             var si = new WinProcesses.STARTUPINFO();
             var processCreationFlags = WinProcesses.ProcessCreationFlags.CREATE_UNICODE_ENVIRONMENT |
                                        WinProcesses.ProcessCreationFlags.DEBUG_ONLY_THIS_PROCESS;
-            if (spawnNewConsoleWindow)
-            {
+            if (spawnNewConsoleWindow) {
                 processCreationFlags |= WinProcesses.ProcessCreationFlags.CREATE_NEW_CONSOLE;
             }
 
@@ -109,16 +107,13 @@ namespace LowLevelDesign
 
         private StringBuilder GetEnvironmentString()
         {
-            if (additionalEnvironmentVars.Count == 0)
-            {
+            if (additionalEnvironmentVars.Count == 0) {
                 return null;
             }
 
             StringBuilder envEntries = new StringBuilder();
-            foreach (string env in Environment.GetEnvironmentVariables().Keys)
-            {
-                if (additionalEnvironmentVars.ContainsKey(env))
-                {
+            foreach (string env in Environment.GetEnvironmentVariables().Keys) {
+                if (additionalEnvironmentVars.ContainsKey(env)) {
                     continue; // overwrite existing env
                 }
 
@@ -126,8 +121,7 @@ namespace LowLevelDesign
                     Environment.GetEnvironmentVariable(env)).Append("\0");
             }
 
-            foreach (var kv in additionalEnvironmentVars)
-            {
+            foreach (var kv in additionalEnvironmentVars) {
                 envEntries.Append(kv.Key).Append("=").Append(
                     kv.Value).Append("\0");
             }
@@ -148,70 +142,88 @@ namespace LowLevelDesign
             hIOCP = CheckResult(
                 WinJobs.NativeMethods.CreateIoCompletionPort(WinHandles.NativeMethods.INVALID_HANDLE_VALUE, IntPtr.Zero,
                     IntPtr.Zero, 1));
-            var assocInfo = new WinJobs.JOBOBJECT_ASSOCIATE_COMPLETION_PORT
-            {
+            var assocInfo = new WinJobs.JOBOBJECT_ASSOCIATE_COMPLETION_PORT {
                 CompletionKey = IntPtr.Zero,
                 CompletionPort = hIOCP
             };
-            uint size = (uint) Marshal.SizeOf(assocInfo);
+            uint size = (uint)Marshal.SizeOf(assocInfo);
             CheckResult(WinJobs.NativeMethods.SetInformationJobObject(hJob,
                 WinJobs.JOBOBJECTINFOCLASS.JobObjectAssociateCompletionPortInformation,
                 ref assocInfo, size));
 
             WinJobs.JobInformationLimitFlags flags = 0;
-            if (!propagateOnChildProcesses)
-            {
+            if (!propagateOnChildProcesses) {
                 flags |= WinJobs.JobInformationLimitFlags.JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK;
             }
 
-            if (maxProcessMemory > 0)
-            {
+            if (maxProcessMemory > 0) {
                 flags |= WinJobs.JobInformationLimitFlags.JOB_OBJECT_LIMIT_PROCESS_MEMORY;
             }
 
-            if (cpuAffinityMask != 0)
-            {
-                flags |= WinJobs.JobInformationLimitFlags.JOB_OBJECT_LIMIT_AFFINITY;
-            }
-
-            if (processUserTimeLimitInMilliseconds > 0)
-            {
+            if (processUserTimeLimitInMilliseconds > 0) {
                 flags |= WinJobs.JobInformationLimitFlags.JOB_OBJECT_LIMIT_PROCESS_TIME;
             }
 
-            if (jobUserTimeLimitInMilliseconds > 0)
-            {
+            if (jobUserTimeLimitInMilliseconds > 0) {
                 flags |= WinJobs.JobInformationLimitFlags.JOB_OBJECT_LIMIT_JOB_TIME;
             }
 
-            long systemAffinity, processAffinity;
-            CheckResult(
-                WinProcesses.NativeMethods.GetProcessAffinityMask(hProcess, out processAffinity, out systemAffinity));
+            // only if NUMA node is not provided we will set the CPU affinity,
+            // otherwise we will set the affinity on a selected NUMA node
+            if (cpuAffinityMask != 0 && numaNode != 0xffff) {
+                flags |= WinJobs.JobInformationLimitFlags.JOB_OBJECT_LIMIT_AFFINITY;
+            }
 
-            // configure constraints
-            var limitInfo = new WinJobs.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
-            {
-                BasicLimitInformation = new WinJobs.JOBOBJECT_BASIC_LIMIT_INFORMATION
-                {
-                    LimitFlags = flags,
-                    Affinity = systemAffinity & cpuAffinityMask,
-                    PerProcessUserTimeLimit = 10_000 * processUserTimeLimitInMilliseconds, // in 100ns
-                    PerJobUserTimeLimit = 10_000 * jobUserTimeLimitInMilliseconds // in 100ns
-                },
-                ProcessMemoryLimit = (UIntPtr) maxProcessMemory
-            };
-            size = (uint) Marshal.SizeOf(limitInfo);
-            CheckResult(WinJobs.NativeMethods.SetInformationJobObject(hJob,
-                WinJobs.JOBOBJECTINFOCLASS.JobObjectExtendedLimitInformation,
-                ref limitInfo, size));
+            CheckResult(WinProcesses.NativeMethods.GetProcessAffinityMask(hProcess, out _, out var systemAffinityMask));
+
+            if (flags != 0) {
+                // configure basic constraints
+                var limitInfo = new WinJobs.JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
+                    BasicLimitInformation = new WinJobs.JOBOBJECT_BASIC_LIMIT_INFORMATION {
+                        LimitFlags = flags,
+                        Affinity = systemAffinityMask & cpuAffinityMask,
+                        PerProcessUserTimeLimit = 10_000 * processUserTimeLimitInMilliseconds, // in 100ns
+                        PerJobUserTimeLimit = 10_000 * jobUserTimeLimitInMilliseconds // in 100ns
+                    },
+                    ProcessMemoryLimit = (UIntPtr)maxProcessMemory
+                };
+                size = (uint)Marshal.SizeOf(limitInfo);
+                CheckResult(WinJobs.NativeMethods.SetInformationJobObject(hJob,
+                    WinJobs.JOBOBJECTINFOCLASS.JobObjectExtendedLimitInformation,
+                    ref limitInfo, size));
+            }
+
+            if (numaNode != 0xffff) {
+                var affinity = new NUMA.GROUP_AFFINITY();
+                CheckResult(NUMA.NativeMethods.GetNumaNodeProcessorMaskEx(numaNode, ref affinity));
+
+                var nodeAffinityMask = affinity.Mask.ToUInt64();
+                if (cpuAffinityMask != 0) {
+                    // find first non-zero least significant bit position
+                    var firstNonZeroBitPosition = 0;
+                    while ((nodeAffinityMask & (1UL << firstNonZeroBitPosition)) == 0) {
+                        firstNonZeroBitPosition++;
+                    }
+                    cpuAffinityMask <<= firstNonZeroBitPosition & 0x3f;
+                } else {
+                    cpuAffinityMask = nodeAffinityMask;
+                }
+                // NOTE: this could result in an overflow on 32-bit apps, but I can't
+                // think of a nice way of handling it here
+                affinity.Mask = new UIntPtr(cpuAffinityMask & systemAffinityMask);
+
+                size = (uint)Marshal.SizeOf(affinity);
+                CheckResult(WinJobs.NativeMethods.SetInformationJobObject(hJob,
+                    WinJobs.JOBOBJECTINFOCLASS.JobObjectGroupInformationEx,
+                    ref affinity, size));
+            }
 
             // assign a process to a job to apply constraints
             CheckResult(WinJobs.NativeMethods.AssignProcessToJobObject(hJob, hProcess.DangerousGetHandle()));
 
             // we start counting the process time running under the job 
             // only if timeout is specified
-            if (clockTimeLimitInMilliseconds > 0)
-            {
+            if (clockTimeLimitInMilliseconds > 0) {
                 processRunningTime.Start();
             }
         }
@@ -222,35 +234,28 @@ namespace LowLevelDesign
             IntPtr pCompletionKey, lpOverlapped;
             bool shouldTerminate = false;
 
-            while (!shouldTerminate)
-            {
+            while (!shouldTerminate) {
                 if (!WinJobs.NativeMethods.GetQueuedCompletionStatus(hIOCP, out msgIdentifier,
-                    out pCompletionKey, out lpOverlapped, 100 /* ms */))
-                {
-                    if (Marshal.GetLastWin32Error() == 735 /* ERROR_ABANDONED_WAIT_0 */)
-                    {
+                    out pCompletionKey, out lpOverlapped, 100 /* ms */)) {
+                    if (Marshal.GetLastWin32Error() == 735 /* ERROR_ABANDONED_WAIT_0 */) {
                         throw new Win32Exception();
                     }
 
                     // otherwise timeout
                     if (clockTimeLimitInMilliseconds > 0 &&
-                        processRunningTime.ElapsedMilliseconds > clockTimeLimitInMilliseconds)
-                    {
+                        processRunningTime.ElapsedMilliseconds > clockTimeLimitInMilliseconds) {
                         logger.TraceEvent(TraceEventType.Information, 0, "Clock time limit passed - terminating.");
                         WinJobs.NativeMethods.TerminateJobObject(hJob, 1);
                         shouldTerminate = true;
                     }
-                }
-                else
-                {
+                } else {
                     shouldTerminate = LogCompletionPacketAndCheckIfTerminating(msgIdentifier, lpOverlapped);
                 }
             }
 
             // Get the exit code and return it
             int masterProcessExitCode;
-            if (WinProcesses.NativeMethods.GetExitCodeProcess(hProcess, out masterProcessExitCode))
-            {
+            if (WinProcesses.NativeMethods.GetExitCodeProcess(hProcess, out masterProcessExitCode)) {
                 // could be STILL_ACTIVE if the process is still running
                 return masterProcessExitCode;
             }
@@ -261,31 +266,30 @@ namespace LowLevelDesign
 
         bool LogCompletionPacketAndCheckIfTerminating(uint msgIdentifier, IntPtr lpOverlapped)
         {
-            switch (msgIdentifier)
-            {
+            switch (msgIdentifier) {
                 case WinJobs.JobMsgInfoMessages.JOB_OBJECT_MSG_NEW_PROCESS:
-                    logger.TraceEvent(TraceEventType.Information, (int) msgIdentifier,
-                        "Process {0} has started", (int) lpOverlapped);
+                    logger.TraceEvent(TraceEventType.Information, (int)msgIdentifier,
+                        "Process {0} has started", (int)lpOverlapped);
                     return false;
                 case WinJobs.JobMsgInfoMessages.JOB_OBJECT_MSG_EXIT_PROCESS:
                 case WinJobs.JobMsgInfoMessages.JOB_OBJECT_MSG_ABNORMAL_EXIT_PROCESS:
-                    logger.TraceEvent(TraceEventType.Information, (int) msgIdentifier,
-                        "Process {0} exited", (int) lpOverlapped);
+                    logger.TraceEvent(TraceEventType.Information, (int)msgIdentifier,
+                        "Process {0} exited", (int)lpOverlapped);
                     return false;
                 case WinJobs.JobMsgInfoMessages.JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO:
-                    logger.TraceEvent(TraceEventType.Information, (int) msgIdentifier,
+                    logger.TraceEvent(TraceEventType.Information, (int)msgIdentifier,
                         "no active processes in the job.");
                     return true; // ALWAYS EXIT - no more processes running in the job
                 case WinJobs.JobMsgInfoMessages.JOB_OBJECT_MSG_PROCESS_MEMORY_LIMIT:
-                    logger.TraceEvent(TraceEventType.Information, (int) msgIdentifier,
-                        "Process {0} exceeded its memory limit", (int) lpOverlapped);
+                    logger.TraceEvent(TraceEventType.Information, (int)msgIdentifier,
+                        "Process {0} exceeded its memory limit", (int)lpOverlapped);
                     return false;
                 case WinJobs.JobMsgInfoMessages.JOB_OBJECT_MSG_END_OF_PROCESS_TIME:
-                    logger.TraceEvent(TraceEventType.Information, (int) msgIdentifier,
-                        "Process {0} exceeded its user-mode execution limit", (int) lpOverlapped);
+                    logger.TraceEvent(TraceEventType.Information, (int)msgIdentifier,
+                        "Process {0} exceeded its user-mode execution limit", (int)lpOverlapped);
                     return !propagateOnChildProcesses; // EXIT when single process - we hit the process user-time limit
                 case WinJobs.JobMsgInfoMessages.JOB_OBJECT_MSG_END_OF_JOB_TIME:
-                    logger.TraceEvent(TraceEventType.Information, (int) msgIdentifier,
+                    logger.TraceEvent(TraceEventType.Information, (int)msgIdentifier,
                         "Job exceeded its user-mode execution limit");
                     return true; // ALWAYS EXIT - we hit the job user-time limit
                 default:
@@ -294,76 +298,68 @@ namespace LowLevelDesign
             }
         }
 
-        public ulong MaxProcessMemory
-        {
+        public ulong MaxProcessMemory {
             get => maxProcessMemory;
             set => maxProcessMemory = value;
         }
 
-        public short ProcessorGroup
-        {
-            get => processorGroup;
-            set => processorGroup = value;
+        public ushort NumaNode {
+            get => numaNode;
+            set {
+                CheckResult(NUMA.NativeMethods.GetNumaHighestNodeNumber(out var highestNodeNumber));
+                if (value > highestNodeNumber) {
+                    throw new ArgumentException($"Incorrect NUMA node number. The highest accepted number is {highestNodeNumber}.");
+                }
+                numaNode = value;
+            }
         }
 
-        public long CpuAffinityMask
-        {
+        public ulong CpuAffinityMask {
             get => cpuAffinityMask;
             set => cpuAffinityMask = value;
         }
 
-        public bool SpawnNewConsoleWindow
-        {
+        public bool SpawnNewConsoleWindow {
             get => spawnNewConsoleWindow;
             set => spawnNewConsoleWindow = value;
         }
 
-        public bool PropagateOnChildProcesses
-        {
+        public bool PropagateOnChildProcesses {
             get => propagateOnChildProcesses;
             set => propagateOnChildProcesses = value;
         }
 
-        public uint ProcessUserTimeLimitInMilliseconds
-        {
+        public uint ProcessUserTimeLimitInMilliseconds {
             get => processUserTimeLimitInMilliseconds;
             set => processUserTimeLimitInMilliseconds = value;
         }
 
-        public uint JobUserTimeLimitInMilliseconds
-        {
+        public uint JobUserTimeLimitInMilliseconds {
             get => jobUserTimeLimitInMilliseconds;
             set => jobUserTimeLimitInMilliseconds = value;
         }
 
-        public uint ClockTimeLimitInMilliseconds
-        {
+        public uint ClockTimeLimitInMilliseconds {
             get => clockTimeLimitInMilliseconds;
             set => clockTimeLimitInMilliseconds = value;
         }
 
-        public bool ShowTraceMessages
-        {
-            set
-            {
-                if (value)
-                {
+        public bool ShowTraceMessages {
+            set {
+                if (value) {
                     logger.Listeners.Add(new ConsoleTraceListener());
                 }
             }
         }
 
-        public Dictionary<string, string> AdditionalEnvironmentVars
-        {
+        public Dictionary<string, string> AdditionalEnvironmentVars {
             get { return additionalEnvironmentVars; }
         }
 
         public void Dispose(bool disposing)
         {
-            if (disposing)
-            {
-                if (hProcess != null && !hProcess.IsClosed)
-                {
+            if (disposing) {
+                if (hProcess != null && !hProcess.IsClosed) {
                     hProcess.Close();
                 }
             }
@@ -387,24 +383,21 @@ namespace LowLevelDesign
 
         private static void CloseHandle(IntPtr handle)
         {
-            if (handle != IntPtr.Zero)
-            {
+            if (handle != IntPtr.Zero) {
                 WinHandles.NativeMethods.CloseHandle(handle);
             }
         }
 
         private static void CheckResult(bool result)
         {
-            if (!result)
-            {
+            if (!result) {
                 throw new Win32Exception();
             }
         }
 
         private static IntPtr CheckResult(IntPtr result)
         {
-            if (result == IntPtr.Zero)
-            {
+            if (result == IntPtr.Zero) {
                 throw new Win32Exception();
             }
 
@@ -413,8 +406,7 @@ namespace LowLevelDesign
 
         private static T CheckResult<T>(T handle) where T : SafeHandle
         {
-            if (handle.IsInvalid)
-            {
+            if (handle.IsInvalid) {
                 throw new Win32Exception();
             }
 
@@ -423,8 +415,7 @@ namespace LowLevelDesign
 
         private static void CheckResult(int result)
         {
-            if (result == -1)
-            {
+            if (result == -1) {
                 throw new Win32Exception();
             }
         }

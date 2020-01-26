@@ -14,11 +14,11 @@ namespace LowLevelDesign
         [Fact]
         public void CalculateAffinityMaskFromCpuCountTest()
         {
-            Assert.Equal(0x1, Program.CalculateAffinityMaskFromCpuCount(1));
-            Assert.Equal(0x3, Program.CalculateAffinityMaskFromCpuCount(2));
-            Assert.Equal(0xf, Program.CalculateAffinityMaskFromCpuCount(4));
-            Assert.Equal(0x1ff, Program.CalculateAffinityMaskFromCpuCount(9));
-            Assert.Equal(-1L, Program.CalculateAffinityMaskFromCpuCount(64));
+            Assert.Equal(0x1UL, Program.CalculateAffinityMaskFromCpuCount(1));
+            Assert.Equal(0x3UL, Program.CalculateAffinityMaskFromCpuCount(2));
+            Assert.Equal(0xfUL, Program.CalculateAffinityMaskFromCpuCount(4));
+            Assert.Equal(0x1ffUL, Program.CalculateAffinityMaskFromCpuCount(9));
+            Assert.Equal(0xffffffffffffffffUL, Program.CalculateAffinityMaskFromCpuCount(64));
         }
 
         [Fact]
