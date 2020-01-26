@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using LowLevelDesign.Win32.NUMA;
 using VsChromium.Core.Win32.Interop;
 
 namespace LowLevelDesign.Win32.Jobs
@@ -24,6 +25,10 @@ namespace LowLevelDesign.Win32.Jobs
         public static extern bool SetInformationJobObject(IntPtr hJob, JOBOBJECTINFOCLASS JobObjectInfoClass,
                 ref JOBOBJECT_ASSOCIATE_COMPLETION_PORT lpJobObjectInfo, uint cbJobObjectInfoLength);
 
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool SetInformationJobObject(IntPtr hJob, JOBOBJECTINFOCLASS JobObjectInfoClass,
+                ref GROUP_AFFINITY lpJobObjectInfo, uint cbJobObjectInfoLength);
+        
         [DllImport("kernel32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool CloseHandle(IntPtr hObject);

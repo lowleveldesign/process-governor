@@ -74,8 +74,8 @@ namespace VsChromium.Core.Win32.Processes
         public static extern int NtWow64QueryInformationProcess64(SafeProcessHandle hProcess, ProcessInfoClass pic, ref ProcessBasicInformationWow64 pbi, int cb, out int pSize);
 
         [DllImport("kernel32.dll", SetLastError = true)]
-        public static extern bool GetProcessAffinityMask(SafeProcessHandle hProcess, out long lpProcessAffinityMask,
-            out long lpSystemAffinityMask);
+        public static extern bool GetProcessAffinityMask(SafeProcessHandle hProcess, out ulong lpProcessAffinityMask,
+            out ulong lpSystemAffinityMask);
 
         [DllImport("kernel32.dll", SetLastError = true)]
         public static extern int ResumeThread(IntPtr hThread);

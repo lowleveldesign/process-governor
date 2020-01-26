@@ -10,7 +10,7 @@
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>LowLevelDesign</RootNamespace>
     <AssemblyName>procgov</AssemblyName>
-    <TargetFrameworkVersion>v4.5.2</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.6.2</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <TargetFrameworkProfile />
     <NuGetPackageImportStamp>
@@ -121,6 +121,8 @@
     <Compile Include="Win32\Jobs\JOBOBJECT_EXTENDED_LIMIT_INFORMATION.cs" />
     <Compile Include="Win32\LastWin32ErrorException.cs" />
     <Compile Include="Win32\NtStatus.cs" />
+    <Compile Include="Win32\NUMA\GROUP_AFFINITY.cs" />
+    <Compile Include="Win32\NUMA\NativeMethods.cs" />
     <Compile Include="Win32\Processes\NativeEnums.cs" />
     <Compile Include="Win32\Processes\NativeMethods.cs" />
     <Compile Include="Win32\Processes\NativeStructs.cs" />
