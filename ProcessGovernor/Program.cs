@@ -239,6 +239,8 @@ namespace LowLevelDesign
                 $"0x{procgov.CpuAffinityMask:X}" : "(not set)");
             Console.WriteLine("Maximum committed memory (MB):          {0}", procgov.MaxProcessMemory > 0 ?
                 $"{(procgov.MaxProcessMemory / 1048576):0,0}" : "(not set)");
+            Console.WriteLine("Maximum WS memory (MB):                 {0}", procgov.MaxWorkingSetSize > 0 ?
+                $"{(procgov.MaxWorkingSetSize / 1048576):0,0}" : "(not set)");
             Console.WriteLine("Preferred NUMA node:                    {0}", procgov.NumaNode != 0xffff ? 
                 $"{procgov.NumaNode}" : "(not set)");
             Console.WriteLine("Process user-time execution limit (ms): {0}", procgov.ProcessUserTimeLimitInMilliseconds > 0 ?
