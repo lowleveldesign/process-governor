@@ -19,15 +19,17 @@ namespace LowLevelDesign
             ShowHeader();
 
             using (var procgov = new ProcessGovernor()) {
-                List<string> procargs = null;
+                var procargs = new List<string>();
                 bool showhelp = false, nogui = false, debug = false;
-                int pid = 0;
-                RegistryOperation registryOperation = RegistryOperation.NONE;
+                var pid = 0;
+                var registryOperation = RegistryOperation.NONE;
 
                 var p = new OptionSet()
                 {
-                    { "m|maxmem=", "Max committed memory usage in bytes (accepted suffixes: K, M or G).",
+                    { "m|maxmem=", "Max committed memory usage in bytes (accepted suffixes: K, M, or G).",
                         v => { procgov.MaxProcessMemory = ParseMemoryString(v); } },
+                    { "maxws=", "Max working set size in bytes (accepted suffixes: K, M, or G).",
+                        v => { procgov.MaxWorkingSetSize = ParseMemoryString(v); } },
                     { "env=", "A text file with environment variables (each line in form: VAR=VAL). Applies only to newly created processes.",
                         v => LoadCustomEnvironmentVariables(procgov, v) },
                     { "n|node=", "The preferred NUMA node for the process.", 
@@ -41,7 +43,8 @@ namespace LowLevelDesign
                                 procgov.CpuAffinityMask = CalculateAffinityMaskFromCpuCount(int.Parse(v));
                             }
                         }},
-                    { "r|recursive", "Apply limits to child processes too (will wait for all processes to finish).", v => { procgov.PropagateOnChildProcesses = v != null;  } },
+                    { "r|recursive", "Apply limits to child processes too (will wait for all processes to finish).", 
+                        v => { procgov.PropagateOnChildProcesses = v != null; } },
                     { "newconsole", "Start the process in a new console window.", v => { procgov.SpawnNewConsoleWindow = v != null; } },
                     { "nogui", "Hide Process Governor console window (set always when installed as debugger).",
                         v => { nogui = v != null; } },

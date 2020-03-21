@@ -9,6 +9,8 @@ Usage: procgov [OPTIONS] args
 Options:
   -m, --maxmem=VALUE         Max committed memory usage in bytes (accepted
                                suffixes: K, M or G).
+      --maxws=VALUE          Max working set size in bytes (accepted
+                               suffixes: K, M, or G).
       --env=VALUE            A text file with environment variables (each
                                line in form: VAR=VAL). Applies only to newly
                                created processes.
