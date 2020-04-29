@@ -87,7 +87,7 @@ A CPU graph in this case looks as follows (notice only the second core is used):
 
 ## Limit the CPU rate
 
-The **--cpu-rate** option allows you to set the maximum CPU rate for the process. If you also set the CPU affinity, the rate will apply only to the selected processes. For example, if you have eight logical CPU cores on your machine and you set the CPU rate to 100% and the CPU affinity to 0x7 (first four cores), the maximum CPU rate reported for this process by the monitoring tools will be 50% (we are running at full capacity but on a half of the CPU number).
+The **--cpu-rate** option allows you to set the maximum CPU rate for the process. If you also set the CPU affinity, the rate will apply only to the selected cores. For example, if you have eight logical CPU cores on your machine and you set the CPU rate to 100% and the CPU affinity to 0x7 (first four cores), the maximum CPU rate reported for this process by the monitoring tools will be 50% (we are running at full capacity but on a half of the CPU number).
 
 ## Limit the execution time of the process (clock time)
 
