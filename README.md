@@ -20,6 +20,9 @@ Options:
                                cores assigned to your app. If you also provide
                                the NUMA node, this setting will apply only to
                                this node.
+  -e, --cpurate=VALUE        The maximum CPU rate in % for the process. If
+                               you also set the affinity, the rate will apply
+                               only to the selected CPU cores.                               
   -r, --recursive            Apply limits to child processes too (will wait
                                for all processes to finish).
       --newconsole           Start the process in a new console window.
@@ -81,6 +84,10 @@ In a second we set the CPU affinity mask (with the hex notation):
 A CPU graph in this case looks as follows (notice only the second core is used):
 
 ![cpu-equals-0x2](https://raw.githubusercontent.com/lowleveldesign/process-governor/master/docs/cpuaffinity-equals-0x2.png)
+
+## Limit the CPU rate
+
+The **--cpu-rate** option allows you to set the maximum CPU rate for the process. If you also set the CPU affinity, the rate will apply only to the selected processes. For example, if you have eight logical CPU cores on your machine and you set the CPU rate to 100% and the CPU affinity to 0x7 (first four cores), the maximum CPU rate reported for this process by the monitoring tools will be 50% (we are running at full capacity but on a half of the CPU number).
 
 ## Limit the execution time of the process (clock time)
 

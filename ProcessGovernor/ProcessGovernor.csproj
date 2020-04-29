@@ -91,7 +91,6 @@
     <Compile Include="ProcessGovernor.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="Win32\Jobs\NativeMethods.cs" />
     <Compile Include="Win32\ComPtr.cs" />
     <Compile Include="Win32\Constants.cs" />
     <Compile Include="Win32\Debugging\CONTINUE_STATUS.cs" />
@@ -112,16 +111,9 @@
     <Compile Include="Win32\Handles\NativeMethods.cs" />
     <Compile Include="Win32\HResults.cs" />
     <Compile Include="Win32\Interop\SecurityAttributes.cs" />
-    <Compile Include="Win32\Jobs\IO_COUNTERS.cs" />
-    <Compile Include="Win32\Jobs\JobInformationLimitFlags.cs" />
-    <Compile Include="Win32\Jobs\JobMsgInfoMessages.cs" />
-    <Compile Include="Win32\Jobs\JOBOBJECTINFOCLASS.cs" />
-    <Compile Include="Win32\Jobs\JOBOBJECT_ASSOCIATE_COMPLETION_PORT.cs" />
-    <Compile Include="Win32\Jobs\JOBOBJECT_BASIC_LIMIT_INFORMATION.cs" />
-    <Compile Include="Win32\Jobs\JOBOBJECT_EXTENDED_LIMIT_INFORMATION.cs" />
+    <Compile Include="Win32\Jobs\NativeMethods.cs" />
     <Compile Include="Win32\LastWin32ErrorException.cs" />
     <Compile Include="Win32\NtStatus.cs" />
-    <Compile Include="Win32\NUMA\GROUP_AFFINITY.cs" />
     <Compile Include="Win32\NUMA\NativeMethods.cs" />
     <Compile Include="Win32\Processes\NativeEnums.cs" />
     <Compile Include="Win32\Processes\NativeMethods.cs" />

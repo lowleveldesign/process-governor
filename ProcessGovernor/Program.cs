@@ -43,6 +43,9 @@ namespace LowLevelDesign
                                 procgov.CpuAffinityMask = CalculateAffinityMaskFromCpuCount(int.Parse(v));
                             }
                         }},
+                    { "e|cpurate=", "The maximum CPU rate in % for the process. If you also set the affinity, " +
+                                  "the rate will apply only to the selected CPU cores.", 
+                        v => { procgov.CpuMaxRate = ParseCpuRate(v); } },
                     { "r|recursive", "Apply limits to child processes too (will wait for all processes to finish).", 
                         v => { procgov.PropagateOnChildProcesses = v != null; } },
                     { "newconsole", "Start the process in a new console window.", v => { procgov.SpawnNewConsoleWindow = v != null; } },
@@ -155,6 +158,16 @@ namespace LowLevelDesign
             return uint.Parse(v);
         }
 
+        public static uint ParseCpuRate(string v)
+        {
+            var rate = uint.Parse(v);
+            if (rate == 0 || rate > 100)
+            {
+                throw new ArgumentException("CPU rate must be between 1 and 100");
+            }
+            return rate;
+        }
+
         public static ulong ParseMemoryString(string v)
         {
             if (v == null) {
@@ -237,6 +250,8 @@ namespace LowLevelDesign
         {
             Console.WriteLine("CPU affinity mask:                      {0}", procgov.CpuAffinityMask != 0 ? 
                 $"0x{procgov.CpuAffinityMask:X}" : "(not set)");
+            Console.WriteLine("Max CPU rate:                           {0}", procgov.CpuMaxRate > 0 ? 
+                $"{procgov.CpuMaxRate}%" : "(not set)");
             Console.WriteLine("Maximum committed memory (MB):          {0}", procgov.MaxProcessMemory > 0 ?
                 $"{(procgov.MaxProcessMemory / 1048576):0,0}" : "(not set)");
             Console.WriteLine("Maximum WS memory (MB):                 {0}", procgov.MaxWorkingSetSize > 0 ?

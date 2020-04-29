@@ -190,13 +190,48 @@ namespace LowLevelDesign
                     ref limitInfo, size));
             }
 
+            if (CpuMaxRate > 0)
+            {
+                // Set CpuRate to a percentage times 100. For example, to let the job use 20% of the CPU, 
+                // set CpuRate to 20 times 100, or 2,000.
+                uint finalCpuRate = CpuMaxRate * 100;
+
+                // CPU rate is set for the whole system so includes all the logical CPUs. When 
+                // we have the CPU affinity set, we will divide the rate accordingly.
+                if (CpuAffinityMask != 0)
+                {
+                    ulong affinity = systemAffinityMask & CpuAffinityMask;
+                    uint numberOfSelectedCores = 0;
+                    for (int i = 0; i < sizeof(ulong) * 8; i++)
+                    {
+                        numberOfSelectedCores += (affinity & (1UL << i)) == 0 ? 0u : 1u;
+                    }
+                    Debug.Assert(numberOfSelectedCores < Environment.ProcessorCount);
+                    finalCpuRate /= ((uint)Environment.ProcessorCount / numberOfSelectedCores);
+                }
+
+                // configure CPU rate limit
+                var limitInfo = new WinJobs.JOBOBJECT_CPU_RATE_CONTROL_INFORMATION {
+                    ControlFlags = WinJobs.JOBOBJECT_CPU_RATE_CONTROL_FLAGS.JOB_OBJECT_CPU_RATE_CONTROL_ENABLE |
+                        WinJobs.JOBOBJECT_CPU_RATE_CONTROL_FLAGS.JOB_OBJECT_CPU_RATE_CONTROL_HARD_CAP,
+
+                    CpuRate = finalCpuRate
+                };
+                size = (uint)Marshal.SizeOf(limitInfo);
+                CheckResult(WinJobs.NativeMethods.SetInformationJobObject(hJob,
+                    WinJobs.JOBOBJECTINFOCLASS.JobObjectCpuRateControlInformation,
+                    ref limitInfo, size));
+            }
+
             if (numaNode != 0xffff) {
                 var affinity = new NUMA.GROUP_AFFINITY();
                 CheckResult(NUMA.NativeMethods.GetNumaNodeProcessorMaskEx(numaNode, ref affinity));
 
                 var nodeAffinityMask = affinity.Mask.ToUInt64();
                 if (CpuAffinityMask != 0) {
-                    // find first non-zero least significant bit position
+                    // When CPU affinity is set, we can't simply use 
+                    // NUMA affinity, but rather need to apply the CPU affinity
+                    // settings to the select NUMA node.
                     var firstNonZeroBitPosition = 0;
                     while ((nodeAffinityMask & (1UL << firstNonZeroBitPosition)) == 0) {
                         firstNonZeroBitPosition++;
@@ -308,6 +343,8 @@ namespace LowLevelDesign
         }
 
         public ulong CpuAffinityMask { get; set; }
+
+        public uint CpuMaxRate { get; set; }
 
         public bool SpawnNewConsoleWindow { get; set; }
 
