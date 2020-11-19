@@ -28,8 +28,10 @@ namespace LowLevelDesign
                 {
                     { "m|maxmem=", "Max committed memory usage in bytes (accepted suffixes: K, M, or G).",
                         v => { procgov.MaxProcessMemory = ParseMemoryString(v); } },
-                    { "maxws=", "Max working set size in bytes (accepted suffixes: K, M, or G).",
+                    { "maxws=", "Max working set size in bytes (accepted suffixes: K, M, or G). Must be set with minws.",
                         v => { procgov.MaxWorkingSetSize = ParseMemoryString(v); } },
+                    { "minws=", "Min working set size in bytes (accepted suffixes: K, M, or G). Must be set with maxws.",
+                        v => { procgov.MinWorkingSetSize = ParseMemoryString(v); } },
                     { "env=", "A text file with environment variables (each line in form: VAR=VAL). Applies only to newly created processes.",
                         v => LoadCustomEnvironmentVariables(procgov, v) },
                     { "n|node=", "The preferred NUMA node for the process.", 
@@ -87,6 +89,12 @@ namespace LowLevelDesign
                     Console.Error.WriteLine("ERROR: {0}", ex.Message);
                     Console.WriteLine();
                     showhelp = true;
+                }
+
+                if ((procgov.MaxWorkingSetSize > 0 && procgov.MinWorkingSetSize == 0) || (procgov.MinWorkingSetSize > 0 && procgov.MaxWorkingSetSize == 0))
+                {
+                    Console.Error.WriteLine("ERROR: minws and maxws must be set together.");
+                    return 1;
                 }
 
                 if (!showhelp && registryOperation != RegistryOperation.NONE) {
@@ -254,6 +262,8 @@ namespace LowLevelDesign
                 $"{procgov.CpuMaxRate}%" : "(not set)");
             Console.WriteLine("Maximum committed memory (MB):          {0}", procgov.MaxProcessMemory > 0 ?
                 $"{(procgov.MaxProcessMemory / 1048576):0,0}" : "(not set)");
+            Console.WriteLine("Minimum WS memory (MB):                 {0}", procgov.MinWorkingSetSize > 0 ?
+                $"{(procgov.MinWorkingSetSize / 1048576):0,0}" : "(not set)");
             Console.WriteLine("Maximum WS memory (MB):                 {0}", procgov.MaxWorkingSetSize > 0 ?
                 $"{(procgov.MaxWorkingSetSize / 1048576):0,0}" : "(not set)");
             Console.WriteLine("Preferred NUMA node:                    {0}", procgov.NumaNode != 0xffff ? 
