@@ -181,6 +181,7 @@ namespace LowLevelDesign
                         PerProcessUserTimeLimit = 10_000 * ProcessUserTimeLimitInMilliseconds, // in 100ns
                         PerJobUserTimeLimit = 10_000 * JobUserTimeLimitInMilliseconds, // in 100ns
                         MaximumWorkingSetSize = (UIntPtr)MaxWorkingSetSize,
+                        MinimumWorkingSetSize = (UIntPtr)MinWorkingSetSize
                     },
                     ProcessMemoryLimit = (UIntPtr)MaxProcessMemory
                 };
@@ -330,6 +331,8 @@ namespace LowLevelDesign
         public ulong MaxProcessMemory { get; set; }
         
         public ulong MaxWorkingSetSize { get; set; }
+
+        public ulong MinWorkingSetSize { get; set; }
 
         public ushort NumaNode {
             get => numaNode;
