@@ -10,7 +10,9 @@ Options:
   -m, --maxmem=VALUE         Max committed memory usage in bytes (accepted
                                suffixes: K, M or G).
       --maxws=VALUE          Max working set size in bytes (accepted
-                               suffixes: K, M, or G).
+                               suffixes: K, M, or G). Must be set with minws.
+      --minws=VALUE          Min working set size in bytes (accepted
+                               suffixes: K, M, or G). Must be set with maxws.
       --env=VALUE            A text file with environment variables (each
                                line in form: VAR=VAL). Applies only to newly
                                created processes.
@@ -62,6 +64,8 @@ Finally, it is possible to **run procgov always when a given process starts**. W
 ## Limit memory of a process
 
 With the **--maxmem** switch Process Governor allows you to set a limit on a memory committed by a process. On Windows committed memory is actually all private memory that the process uses. This way you may use Process Governor to test your .NET applications (including web applications) for memory leaks. If the process is leaking memory you faster get the **OutOfMemoryException**.
+
+With the **--maxws** and **--minws** switches you may control the maximum and minimum working set sizes of the process. If **--maxws** is > 0, **--minws** must also be > 0, and vice-versa.
 
 ## Limit CPU usage of a process (CPU affinity)
 
