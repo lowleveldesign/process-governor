@@ -114,6 +114,7 @@ COR_PROFILER={32E2F4DA-1BEA-47ea-88F9-C5DAF691C94A}
 
 Below you may find a list of people who contributed to this project. Thank you!
 
+- @rowandh - an issue with the WS limit not being set
 - @beevvy - an issue report and a fix for a bug with the environment variables
 - @weidingerhp - an idea of environment variables for a process and CLR profiler setup
 
