@@ -24,7 +24,7 @@ Options:
                                this node.
   -e, --cpurate=VALUE        The maximum CPU rate in % for the process. If
                                you also set the affinity, the rate will apply
-                               only to the selected CPU cores.                               
+                               only to the selected CPU cores. (Windows 8.1+) 
   -r, --recursive            Apply limits to child processes too (will wait
                                for all processes to finish).
       --newconsole           Start the process in a new console window.
@@ -54,6 +54,8 @@ Options:
   -h, --help                 Show this message and exit
   -?                         Show this message and exit
 ```
+
+Procgov requires .NET 4.6.2 to run.
 
 **REMEMBER to always use procgov with the same bitness as your application.**
 

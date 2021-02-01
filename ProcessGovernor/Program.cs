@@ -46,7 +46,7 @@ namespace LowLevelDesign
                             }
                         }},
                     { "e|cpurate=", "The maximum CPU rate in % for the process. If you also set the affinity, " +
-                                  "the rate will apply only to the selected CPU cores.", 
+                                  "the rate will apply only to the selected CPU cores. (Windows 8.1+)", 
                         v => { procgov.CpuMaxRate = ParseCpuRate(v); } },
                     { "r|recursive", "Apply limits to child processes too (will wait for all processes to finish).", 
                         v => { procgov.PropagateOnChildProcesses = v != null; } },
