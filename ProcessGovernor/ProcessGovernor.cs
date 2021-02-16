@@ -19,12 +19,12 @@ namespace LowLevelDesign
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         private readonly TraceSource logger = new TraceSource("[procgov]", SourceLevels.All);
+        private readonly Stopwatch processRunningTime = new Stopwatch();
 
         private ushort numaNode = 0xffff;
 
         private WinProcesses.SafeProcessHandle hProcess;
         private IntPtr hIOCP, hJob;
-        private Stopwatch processRunningTime = new Stopwatch();
 
         public ProcessGovernor()
         {

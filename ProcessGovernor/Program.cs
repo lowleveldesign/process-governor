@@ -16,11 +16,9 @@ namespace LowLevelDesign
     {
         public static int Main(string[] args)
         {
-            ShowHeader();
-
             using (var procgov = new ProcessGovernor()) {
                 var procargs = new List<string>();
-                bool showhelp = false, nogui = false, debug = false;
+                bool showhelp = false, nogui = false, debug = false, quiet = false;
                 var pid = 0;
                 var registryOperation = RegistryOperation.NONE;
 
@@ -34,7 +32,7 @@ namespace LowLevelDesign
                         v => { procgov.MinWorkingSetSize = ParseMemoryString(v); } },
                     { "env=", "A text file with environment variables (each line in form: VAR=VAL). Applies only to newly created processes.",
                         v => LoadCustomEnvironmentVariables(procgov, v) },
-                    { "n|node=", "The preferred NUMA node for the process.", 
+                    { "n|node=", "The preferred NUMA node for the process.",
                         v => procgov.NumaNode = ushort.Parse(v) },
                     { "c|cpu=", "If in hex (starts with 0x) it is treated as an affinity mask, otherwise it is a number of CPU cores assigned to your app. " +
                         "If you also provide the NUMA node, this setting will apply only to this node.",
@@ -46,9 +44,9 @@ namespace LowLevelDesign
                             }
                         }},
                     { "e|cpurate=", "The maximum CPU rate in % for the process. If you also set the affinity, " +
-                                  "the rate will apply only to the selected CPU cores. (Windows 8.1+)", 
+                                  "the rate will apply only to the selected CPU cores. (Windows 8.1+)",
                         v => { procgov.CpuMaxRate = ParseCpuRate(v); } },
-                    { "r|recursive", "Apply limits to child processes too (will wait for all processes to finish).", 
+                    { "r|recursive", "Apply limits to child processes too (will wait for all processes to finish).",
                         v => { procgov.PropagateOnChildProcesses = v != null; } },
                     { "newconsole", "Start the process in a new console window.", v => { procgov.SpawnNewConsoleWindow = v != null; } },
                     { "nogui", "Hide Process Governor console window (set always when installed as debugger).",
@@ -69,6 +67,7 @@ namespace LowLevelDesign
                     { "uninstall", "Uninstall procgov for a specific process.", v => { registryOperation = RegistryOperation.UNINSTALL; } },
                     { "debugger", "Internal - do not use.",
                         v => debug = v != null },
+                    { "q|quiet", "Do not show procgov messages.", v => quiet = v != null },
                     { "v|verbose", "Show verbose messages in the console.", v => procgov.ShowTraceMessages = v != null },
                     { "h|help", "Show this message and exit", v => showhelp = v != null },
                     { "?", "Show this message and exit", v => showhelp = v != null }
@@ -79,15 +78,15 @@ namespace LowLevelDesign
                 } catch (OptionException ex) {
                     Console.Error.Write("ERROR: invalid argument");
                     Console.Error.WriteLine(ex.Message);
-                    Console.WriteLine();
+                    Console.Error.WriteLine();
                     showhelp = true;
                 } catch (FormatException) {
                     Console.Error.WriteLine("ERROR: invalid number in one of the constraints");
-                    Console.WriteLine();
+                    Console.Error.WriteLine();
                     showhelp = true;
                 } catch (ArgumentException ex) {
                     Console.Error.WriteLine("ERROR: {0}", ex.Message);
-                    Console.WriteLine();
+                    Console.Error.WriteLine();
                     showhelp = true;
                 }
 
@@ -108,11 +107,12 @@ namespace LowLevelDesign
 
                 if (!showhelp && (procargs.Count == 0 && pid == 0) || (pid > 0 && procargs.Count > 0)) {
                     Console.Error.WriteLine("ERROR: please provide either process name or PID of the already running process");
-                    Console.WriteLine();
+                    Console.Error.WriteLine();
                     showhelp = true;
                 }
 
                 if (showhelp) {
+                    ShowHeader();
                     ShowHelp(p);
                     return 0;
                 }
@@ -124,7 +124,10 @@ namespace LowLevelDesign
 #if !DEBUG
                 try {
 #endif
-                    ShowLimits(procgov);
+                    if (!quiet) {
+                        ShowHeader();
+                        ShowLimits(procgov);
+                    }
 
                     if (debug) {
                         return procgov.StartProcessUnderDebuggerAndDetach(procargs);
