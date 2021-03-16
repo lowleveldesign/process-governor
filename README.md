@@ -25,9 +25,9 @@ Options:
   -e, --cpurate=VALUE        The maximum CPU rate in % for the process. If
                                you also set the affinity, the rate will apply
                                only to the selected CPU cores. (Windows 8.1+) 
-      --bandwidth=VALUE      The maximum bandwidth for outgoing network
-                               traffic in bytes for the process (accepted
-                               suffixes: K, M, or G). (Windows 10+)
+      --bandwidth=VALUE      The maximum bandwidth (in bytes) for the process
+                               outgoing network traffic (accepted suffixes: K,
+                               M, or G). (Windows 10+)
   -r, --recursive            Apply limits to child processes too (will wait
                                for all processes to finish).
       --newconsole           Start the process in a new console window.

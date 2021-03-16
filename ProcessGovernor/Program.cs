@@ -44,10 +44,10 @@ namespace LowLevelDesign
                             }
                         }},
                     { "e|cpurate=", "The maximum CPU rate in % for the process. If you also set the affinity, " +
-                                  "the rate will apply only to the selected CPU cores. (Windows 8.1+)",
+                        "the rate will apply only to the selected CPU cores. (Windows 8.1+)",
                         v => { procgov.CpuMaxRate = ParseCpuRate(v); } },
-                    { "bandwidth=", "The maximum bandwidth for outgoing network traffic in bytes for the " +
-                                  "process (accepted suffixes: K, M, or G). (Windows 10+)",
+                    { "bandwidth=", "The maximum bandwidth (in bytes) for the process outgoing network traffic" +
+                        " (accepted suffixes: K, M, or G). (Windows 10+)",
                         v => { procgov.MaxBandwidth = ParseByteLength(v); } },
                     { "r|recursive", "Apply limits to child processes too (will wait for all processes to finish).",
                         v => { procgov.PropagateOnChildProcesses = v != null; } },
