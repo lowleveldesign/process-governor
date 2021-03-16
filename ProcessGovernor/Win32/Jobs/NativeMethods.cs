@@ -14,7 +14,8 @@ namespace LowLevelDesign.Win32.Jobs
         JobObjectExtendedLimitInformation = 9,
         JobObjectGroupInformation = 11,
         JobObjectGroupInformationEx = 14,
-        JobObjectCpuRateControlInformation = 15
+        JobObjectCpuRateControlInformation = 15,
+        JobObjectNetRateControlInformation = 32,
     }
 
     public class JobMsgInfoMessages
@@ -117,10 +118,30 @@ namespace LowLevelDesign.Win32.Jobs
         public ushort MaxRate;
     }
 
+    [Flags]
+    public enum JOB_OBJECT_NET_RATE_CONTROL_FLAGS
+    {
+        JOB_OBJECT_NET_RATE_CONTROL_ENABLE = 0x1,
+        JOB_OBJECT_NET_RATE_CONTROL_MAX_BANDWIDTH = 0x2,
+        JOB_OBJECT_NET_RATE_CONTROL_DSCP_TAG = 0x4,
+        JOB_OBJECT_NET_RATE_CONTROL_VALID_FLAGS = 0x7
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct JOBOBJECT_NET_RATE_CONTROL_INFORMATION
+    {
+        public UInt64 MaxBandwidth;
+        public JOB_OBJECT_NET_RATE_CONTROL_FLAGS ControlFlags;
+        public byte DscpTag;
+    }
+
+
     internal static class NativeMethods
     {
+        public const byte JOB_OBJECT_NET_RATE_CONTROL_MAX_DSCP_TAG = 64;
+
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        public static extern IntPtr CreateJobObject([In]SecurityAttributes lpJobAttributes, string lpName);
+        public static extern IntPtr CreateJobObject([In] SecurityAttributes lpJobAttributes, string lpName);
 
         [DllImport("kernel32.dll", SetLastError = true)]
         public static extern bool TerminateJobObject(IntPtr hJob, uint uExitCode);
@@ -144,6 +165,10 @@ namespace LowLevelDesign.Win32.Jobs
         [DllImport("kernel32.dll", SetLastError = true)]
         public static extern bool SetInformationJobObject(IntPtr hJob, JOBOBJECTINFOCLASS JobObjectInfoClass,
                 ref JOBOBJECT_CPU_RATE_CONTROL_INFORMATION lpJobObjectInfo, uint cbJobObjectInfoLength);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool SetInformationJobObject(IntPtr hJob, JOBOBJECTINFOCLASS JobObjectInfoClass,
+                ref JOBOBJECT_NET_RATE_CONTROL_INFORMATION lpJobObjectInfo, uint cbJobObjectInfoLength);
 
         [DllImport("kernel32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]

@@ -46,6 +46,9 @@ namespace LowLevelDesign
                     { "e|cpurate=", "The maximum CPU rate in % for the process. If you also set the affinity, " +
                                   "the rate will apply only to the selected CPU cores. (Windows 8.1+)",
                         v => { procgov.CpuMaxRate = ParseCpuRate(v); } },
+                    { "bandwidth=", "The maximum bandwidth for outgoing network traffic in bytes for the " +
+                                  "process (accepted suffixes: K, M, or G). (Windows 10+)",
+                        v => { procgov.MaxBandwidth = ParseByteLength(v); } },
                     { "r|recursive", "Apply limits to child processes too (will wait for all processes to finish).",
                         v => { procgov.PropagateOnChildProcesses = v != null; } },
                     { "newconsole", "Start the process in a new console window.", v => { procgov.SpawnNewConsoleWindow = v != null; } },
@@ -178,8 +181,7 @@ namespace LowLevelDesign
             }
             return rate;
         }
-
-        public static ulong ParseMemoryString(string v)
+        public static ulong ParseByteLength(string v)
         {
             if (v == null) {
                 return 0;
@@ -194,6 +196,15 @@ namespace LowLevelDesign
             } else {
                 result = ulong.Parse(v);
             }
+            return result;
+        }
+
+        public static ulong ParseMemoryString(string v)
+        {
+            if (v == null) {
+                return 0;
+            }
+            ulong result = ParseByteLength(v);
             if (IntPtr.Size == 4 && result > uint.MaxValue)
             {
                 // 32 bit
@@ -263,6 +274,8 @@ namespace LowLevelDesign
                 $"0x{procgov.CpuAffinityMask:X}" : "(not set)");
             Console.WriteLine("Max CPU rate:                           {0}", procgov.CpuMaxRate > 0 ? 
                 $"{procgov.CpuMaxRate}%" : "(not set)");
+            Console.WriteLine("Max bandwidth (B):                      {0}", procgov.MaxBandwidth > 0 ? 
+                $"{(procgov.MaxBandwidth):#,0}" : "(not set)");
             Console.WriteLine("Maximum committed memory (MB):          {0}", procgov.MaxProcessMemory > 0 ?
                 $"{(procgov.MaxProcessMemory / 1048576):0,0}" : "(not set)");
             Console.WriteLine("Minimum WS memory (MB):                 {0}", procgov.MinWorkingSetSize > 0 ?

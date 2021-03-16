@@ -224,6 +224,19 @@ namespace LowLevelDesign
                     ref limitInfo, size));
             }
 
+            if (MaxBandwidth > 0)
+            {
+                var limitInfo = new WinJobs.JOBOBJECT_NET_RATE_CONTROL_INFORMATION {
+                    ControlFlags = WinJobs.JOB_OBJECT_NET_RATE_CONTROL_FLAGS.JOB_OBJECT_NET_RATE_CONTROL_ENABLE |
+                                    WinJobs.JOB_OBJECT_NET_RATE_CONTROL_FLAGS.JOB_OBJECT_NET_RATE_CONTROL_MAX_BANDWIDTH,
+                    MaxBandwidth = MaxBandwidth
+                };
+                size = (uint)Marshal.SizeOf(limitInfo);
+                CheckResult(WinJobs.NativeMethods.SetInformationJobObject(hJob,
+                    WinJobs.JOBOBJECTINFOCLASS.JobObjectNetRateControlInformation,
+                    ref limitInfo, size));
+            }
+
             if (numaNode != 0xffff) {
                 var affinity = new NUMA.GROUP_AFFINITY();
                 CheckResult(NUMA.NativeMethods.GetNumaNodeProcessorMaskEx(numaNode, ref affinity));
@@ -348,6 +361,8 @@ namespace LowLevelDesign
         public ulong CpuAffinityMask { get; set; }
 
         public uint CpuMaxRate { get; set; }
+
+        public ulong MaxBandwidth { get; set; }
 
         public bool SpawnNewConsoleWindow { get; set; }
 
