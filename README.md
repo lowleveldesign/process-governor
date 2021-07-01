@@ -1,7 +1,11 @@
 
 # Process Governor
 
-This application allows you to set constraints on a process. It uses [a job object](https://msdn.microsoft.com/en-us/library/windows/desktop/ms684161(v=vs.85).aspx) for this purpose. The available options are:
+This application allows you to set constraints on a process. It uses [a job object](https://msdn.microsoft.com/en-us/library/windows/desktop/ms684161(v=vs.85).aspx) for this purpose. 
+
+Procgov requires .NET 4.6.2 to run and you may download the latest version binaries from the [release page](https://github.com/lowleveldesign/process-governor/releases) (**REMEMBER to always use procgov with the same bitness as your application**).
+
+The available options are:
 
 ```
 Usage: procgov [OPTIONS] args
@@ -58,10 +62,6 @@ Options:
   -h, --help                 Show this message and exit
   -?                         Show this message and exit
 ```
-
-Procgov requires .NET 4.6.2 to run.
-
-**REMEMBER to always use procgov with the same bitness as your application.**
 
 You may set limits on a newly created process or on an already running one. To **attach to a process** use the **-p|--pid** switch, eg. `procgov --maxmem 40M --pid 1234`. To **start a new process** with the limits applied, just pass the process image path and its arguments as procgov arguments, eg. `procgov --maxmem 40M c:\temp\test.exe arg1 arg2"`.
 
