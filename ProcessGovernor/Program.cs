@@ -8,7 +8,8 @@ using System.IO;
 using System.Reflection;
 using System.Security.Principal;
 using System.Text;
-using WinWindows = LowLevelDesign.Win32.Windows;
+using Windows.Win32;
+using Windows.Win32.UI.WindowsAndMessaging;
 
 namespace LowLevelDesign
 {
@@ -19,7 +20,7 @@ namespace LowLevelDesign
             using (var procgov = new ProcessGovernor()) {
                 var procargs = new List<string>();
                 bool showhelp = false, nogui = false, debug = false, quiet = false;
-                var pid = 0;
+                var pid = 0u;
                 var registryOperation = RegistryOperation.NONE;
 
                 var p = new OptionSet()
@@ -54,7 +55,7 @@ namespace LowLevelDesign
                     { "newconsole", "Start the process in a new console window.", v => { procgov.SpawnNewConsoleWindow = v != null; } },
                     { "nogui", "Hide Process Governor console window (set always when installed as debugger).",
                         v => { nogui = v != null; } },
-                    { "p|pid=", "Attach to an already running process", (int v) => pid = v },
+                    { "p|pid=", "Attach to an already running process", (uint v) => pid = v },
                     { "install", "Install procgov as a debugger for a specific process using Image File Executions. " +
                                  "DO NOT USE this option if the process you want to control starts child instances of itself (for example, Chrome).",
                         v => { registryOperation = RegistryOperation.INSTALL; } },
@@ -121,8 +122,7 @@ namespace LowLevelDesign
                 }
 
                 if (nogui) {
-                    WinWindows.NativeMethods.ShowWindow(WinWindows.NativeMethods.GetConsoleWindow(), 
-                        WinWindows.NativeMethods.SW_HIDE);
+                    PInvoke.ShowWindow(PInvoke.GetConsoleWindow(), SHOW_WINDOW_CMD.SW_HIDE);
                 }
 #if !DEBUG
                 try {
@@ -133,12 +133,12 @@ namespace LowLevelDesign
                     }
 
                     if (debug) {
-                        return procgov.StartProcessUnderDebuggerAndDetach(procargs);
+                        return (int)procgov.StartProcessUnderDebuggerAndDetach(procargs);
                     }
                     if (pid > 0) {
-                        return procgov.AttachToProcess(pid);
+                        return (int)procgov.AttachToProcess(pid);
                     } 
-                    return procgov.StartProcess(procargs);
+                    return (int)procgov.StartProcess(procargs);
 #if !DEBUG
                 } catch (Win32Exception ex) {
                     Console.Error.WriteLine("ERROR: {0} (0x{1:X})", ex.Message, ex.ErrorCode);

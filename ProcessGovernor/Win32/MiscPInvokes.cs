@@ -1,23 +1,10 @@
 using System;
 using System.Runtime.InteropServices;
-using LowLevelDesign.Win32.NUMA;
-using VsChromium.Core.Win32.Interop;
+using Windows.Win32.System.Kernel;
+using Windows.Win32.System.SystemServices;
 
-namespace LowLevelDesign.Win32.Jobs
+namespace LowLevelDesign.Win32
 {
-    public enum JOBOBJECTINFOCLASS
-    {
-        JobObjectAssociateCompletionPortInformation = 7,
-        JobObjectBasicLimitInformation = 2,
-        JobObjectBasicUIRestrictions = 4,
-        JobObjectEndOfJobTimeInformation = 6,
-        JobObjectExtendedLimitInformation = 9,
-        JobObjectGroupInformation = 11,
-        JobObjectGroupInformationEx = 14,
-        JobObjectCpuRateControlInformation = 15,
-        JobObjectNetRateControlInformation = 32,
-    }
-
     public class JobMsgInfoMessages
     {
         public const uint JOB_OBJECT_MSG_END_OF_JOB_TIME = 1;
@@ -66,7 +53,7 @@ namespace LowLevelDesign.Win32.Jobs
         public UIntPtr MinimumWorkingSetSize;
         public UIntPtr MaximumWorkingSetSize;
         public UInt32 ActiveProcessLimit;
-        public UInt64 Affinity;
+        public UIntPtr Affinity;
         public UInt32 PriorityClass;
         public UInt32 SchedulingClass;
     }
@@ -136,19 +123,9 @@ namespace LowLevelDesign.Win32.Jobs
     }
 
 
-    internal static class NativeMethods
+    internal static class Jobs
     {
         public const byte JOB_OBJECT_NET_RATE_CONTROL_MAX_DSCP_TAG = 64;
-
-        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        public static extern IntPtr CreateJobObject([In] SecurityAttributes lpJobAttributes, string lpName);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        public static extern bool TerminateJobObject(IntPtr hJob, uint uExitCode);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool AssignProcessToJobObject(IntPtr hJob, IntPtr hProcess);
 
         [DllImport("kernel32.dll", SetLastError = true)]
         public static extern bool SetInformationJobObject(IntPtr hJob, JOBOBJECTINFOCLASS JobObjectInfoClass,
@@ -169,18 +146,5 @@ namespace LowLevelDesign.Win32.Jobs
         [DllImport("kernel32.dll", SetLastError = true)]
         public static extern bool SetInformationJobObject(IntPtr hJob, JOBOBJECTINFOCLASS JobObjectInfoClass,
                 ref JOBOBJECT_NET_RATE_CONTROL_INFORMATION lpJobObjectInfo, uint cbJobObjectInfoLength);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool CloseHandle(IntPtr hObject);
-
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        public static extern IntPtr CreateIoCompletionPort(IntPtr FileHandle, IntPtr ExistingCompletionPort,
-                IntPtr CompletionKey, uint NumberOfConcurrentThreads);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        public static extern bool GetQueuedCompletionStatus(IntPtr CompletionPort, out uint lpNumberOfBytes,
-                out IntPtr lpCompletionKey, out IntPtr lpOverlapped, uint dwMilliseconds);
     }
 }

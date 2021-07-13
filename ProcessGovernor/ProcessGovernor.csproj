@@ -1,10 +1,14 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="14.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="..\packages\Microsoft.Windows.SDK.Win32Metadata.10.2.84-preview\build\net20\Microsoft.Windows.SDK.Win32Metadata.props" Condition="Exists('..\packages\Microsoft.Windows.SDK.Win32Metadata.10.2.84-preview\build\net20\Microsoft.Windows.SDK.Win32Metadata.props')" />
+  <Import Project="..\packages\Microsoft.Windows.CsWin32.0.1.506-beta\build\net20\Microsoft.Windows.CsWin32.props" Condition="Exists('..\packages\Microsoft.Windows.CsWin32.0.1.506-beta\build\net20\Microsoft.Windows.CsWin32.props')" />
   <Import Project="..\packages\Costura.Fody.3.3.2\build\Costura.Fody.props" Condition="Exists('..\packages\Costura.Fody.3.3.2\build\Costura.Fody.props')" />
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
-    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <Platform Condition=" '$(Platform)' == '' ">x64</Platform>
+    <LangVersion>8.0</LangVersion>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <ProjectGuid>{A8087179-233B-4B0F-A0DE-D39B512997E0}</ProjectGuid>
     <OutputType>Exe</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
@@ -15,25 +19,6 @@
     <TargetFrameworkProfile />
     <NuGetPackageImportStamp>
     </NuGetPackageImportStamp>
-  </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
-    <PlatformTarget>AnyCPU</PlatformTarget>
-    <DebugSymbols>true</DebugSymbols>
-    <DebugType>full</DebugType>
-    <Optimize>false</Optimize>
-    <OutputPath>bin\Debug\</OutputPath>
-    <DefineConstants>DEBUG;TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-  </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
-    <PlatformTarget>AnyCPU</PlatformTarget>
-    <DebugType>pdbonly</DebugType>
-    <Optimize>true</Optimize>
-    <OutputPath>bin\Release\</OutputPath>
-    <DefineConstants>TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x86'">
     <DebugSymbols>true</DebugSymbols>
@@ -79,11 +64,27 @@
     <Reference Include="Costura, Version=3.3.2.0, Culture=neutral, PublicKeyToken=9919ef960d84173d, processorArchitecture=MSIL">
       <HintPath>..\packages\Costura.Fody.3.3.2\lib\net40\Costura.dll</HintPath>
     </Reference>
+    <Reference Include="Microsoft.Windows.SDK.Win32Docs, Version=0.1.4.39555, Culture=neutral, PublicKeyToken=7c40c7c34b1fcfe1, processorArchitecture=MSIL">
+      <HintPath>..\packages\Microsoft.Windows.SDK.Win32Docs.0.1.4-alpha\lib\netstandard2.0\Microsoft.Windows.SDK.Win32Docs.dll</HintPath>
+    </Reference>
     <Reference Include="NDesk.Options, Version=0.2.1.0, Culture=neutral, processorArchitecture=MSIL">
       <HintPath>..\packages\NDesk.Options.0.2.1\lib\NDesk.Options.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="System" />
+    <Reference Include="System.Buffers, Version=4.0.3.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
+      <HintPath>..\packages\System.Buffers.4.5.1\lib\net461\System.Buffers.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Memory, Version=4.0.1.1, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
+      <HintPath>..\packages\System.Memory.4.5.4\lib\net461\System.Memory.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Numerics" />
+    <Reference Include="System.Numerics.Vectors, Version=4.1.4.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+      <HintPath>..\packages\System.Numerics.Vectors.4.5.0\lib\net46\System.Numerics.Vectors.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Runtime.CompilerServices.Unsafe, Version=4.0.4.1, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+      <HintPath>..\packages\System.Runtime.CompilerServices.Unsafe.4.5.3\lib\net461\System.Runtime.CompilerServices.Unsafe.dll</HintPath>
+    </Reference>
   </ItemGroup>
   <ItemGroup>
     <Compile Include="DebugPrivilege.cs" />
@@ -91,50 +92,30 @@
     <Compile Include="ProcessGovernor.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="Win32\ComPtr.cs" />
-    <Compile Include="Win32\Constants.cs" />
-    <Compile Include="Win32\Debugging\CONTINUE_STATUS.cs" />
-    <Compile Include="Win32\Debugging\CREATE_PROCESS_DEBUG_INFO.cs" />
-    <Compile Include="Win32\Debugging\CREATE_THREAD_DEBUG_INFO.cs" />
-    <Compile Include="Win32\Debugging\DEBUG_EVENT.cs" />
-    <Compile Include="Win32\Debugging\DEBUG_EVENT_CODE.cs" />
-    <Compile Include="Win32\Debugging\EXCEPTION_DEBUG_INFO.cs" />
-    <Compile Include="Win32\Debugging\EXCEPTION_RECORD.cs" />
-    <Compile Include="Win32\Debugging\EXIT_PROCESS_DEBUG_INFO.cs" />
-    <Compile Include="Win32\Debugging\EXIT_THREAD_DEBUG_INFO.cs" />
-    <Compile Include="Win32\Debugging\LOAD_DLL_DEBUG_INFO.cs" />
-    <Compile Include="Win32\Debugging\NativeMethods.cs" />
-    <Compile Include="Win32\Debugging\OUTPUT_DEBUG_STRING_INFO.cs" />
-    <Compile Include="Win32\Debugging\PTHREAD_START_ROUTINE.cs" />
-    <Compile Include="Win32\Debugging\RIP_INFO.cs" />
-    <Compile Include="Win32\Debugging\UNLOAD_DLL_DEBUG_INFO.cs" />
-    <Compile Include="Win32\Handles\NativeMethods.cs" />
-    <Compile Include="Win32\HResults.cs" />
-    <Compile Include="Win32\Interop\SecurityAttributes.cs" />
-    <Compile Include="Win32\Jobs\NativeMethods.cs" />
-    <Compile Include="Win32\LastWin32ErrorException.cs" />
-    <Compile Include="Win32\NtStatus.cs" />
-    <Compile Include="Win32\NUMA\NativeMethods.cs" />
-    <Compile Include="Win32\Processes\NativeEnums.cs" />
-    <Compile Include="Win32\Processes\NativeMethods.cs" />
-    <Compile Include="Win32\Processes\NativeStructs.cs" />
-    <Compile Include="Win32\Processes\ProcessCreationFlags.cs" />
-    <Compile Include="Win32\Processes\PROCESS_INFORMATION.cs" />
-    <Compile Include="Win32\Processes\SafeProcessHandle.cs" />
-    <Compile Include="Win32\Processes\SafeThreadHandle.cs" />
-    <Compile Include="Win32\Processes\Startupinfo.cs" />
-    <Compile Include="Win32\UnicodeString.cs" />
-    <Compile Include="Win32\Windows\NativeMethods.cs" />
+    <Compile Include="Win32\MiscPInvokes.cs" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="app.config" />
     <None Include="packages.config" />
-    <None Include="Win32\vschromium-LICENSE" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="FodyWeavers.xml">
       <SubType>Designer</SubType>
     </Content>
+    <Content Include="NativeMethods.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Analyzer Include="..\packages\Microsoft.Windows.CsWin32.0.1.506-beta\analyzers\cs\MessagePack.Annotations.dll" />
+    <Analyzer Include="..\packages\Microsoft.Windows.CsWin32.0.1.506-beta\analyzers\cs\MessagePack.dll" />
+    <Analyzer Include="..\packages\Microsoft.Windows.CsWin32.0.1.506-beta\analyzers\cs\Microsoft.Bcl.AsyncInterfaces.dll" />
+    <Analyzer Include="..\packages\Microsoft.Windows.CsWin32.0.1.506-beta\analyzers\cs\Microsoft.Windows.CsWin32.dll" />
+    <Analyzer Include="..\packages\Microsoft.Windows.CsWin32.0.1.506-beta\analyzers\cs\Microsoft.Windows.SDK.Win32Docs.dll" />
+    <Analyzer Include="..\packages\Microsoft.Windows.CsWin32.0.1.506-beta\analyzers\cs\System.Buffers.dll" />
+    <Analyzer Include="..\packages\Microsoft.Windows.CsWin32.0.1.506-beta\analyzers\cs\System.Memory.dll" />
+    <Analyzer Include="..\packages\Microsoft.Windows.CsWin32.0.1.506-beta\analyzers\cs\System.Numerics.Vectors.dll" />
+    <Analyzer Include="..\packages\Microsoft.Windows.CsWin32.0.1.506-beta\analyzers\cs\System.Runtime.CompilerServices.Unsafe.dll" />
+    <Analyzer Include="..\packages\Microsoft.Windows.CsWin32.0.1.506-beta\analyzers\cs\System.Text.Encodings.Web.dll" />
+    <Analyzer Include="..\packages\Microsoft.Windows.CsWin32.0.1.506-beta\analyzers\cs\System.Text.Json.dll" />
+    <Analyzer Include="..\packages\Microsoft.Windows.CsWin32.0.1.506-beta\analyzers\cs\System.Threading.Tasks.Extensions.dll" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <Import Project="..\packages\Fody.3.3.5\build\Fody.targets" Condition="Exists('..\packages\Fody.3.3.5\build\Fody.targets')" />
@@ -144,6 +125,8 @@
     </PropertyGroup>
     <Error Condition="!Exists('..\packages\Fody.3.3.5\build\Fody.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Fody.3.3.5\build\Fody.targets'))" />
     <Error Condition="!Exists('..\packages\Costura.Fody.3.3.2\build\Costura.Fody.props')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Costura.Fody.3.3.2\build\Costura.Fody.props'))" />
+    <Error Condition="!Exists('..\packages\Microsoft.Windows.CsWin32.0.1.506-beta\build\net20\Microsoft.Windows.CsWin32.props')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Microsoft.Windows.CsWin32.0.1.506-beta\build\net20\Microsoft.Windows.CsWin32.props'))" />
+    <Error Condition="!Exists('..\packages\Microsoft.Windows.SDK.Win32Metadata.10.2.84-preview\build\net20\Microsoft.Windows.SDK.Win32Metadata.props')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Microsoft.Windows.SDK.Win32Metadata.10.2.84-preview\build\net20\Microsoft.Windows.SDK.Win32Metadata.props'))" />
   </Target>
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.
