@@ -6,6 +6,7 @@ GetProcessAffinityMask
 DebugSetProcessKillOnExit
 DebugActiveProcessStop
 CreateJobObject
+OpenJobObject
 TerminateJobObject
 AssignProcessToJobObject
 CreateIoCompletionPort
@@ -16,3 +17,8 @@ GetNumaNodeProcessorMaskEx
 GetExitCodeProcess
 ShowWindow
 GetConsoleWindow
+
+JOB_OBJECT_ASSIGN_PROCESS
+JOB_OBJECT_QUERY
+JOB_OBJECT_SET_ATTRIBUTES
+JOB_OBJECT_TERMINATE

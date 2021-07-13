@@ -29,6 +29,7 @@ namespace LowLevelDesign
         private ushort numaNode = 0xffff;
 
         private SafeHandle hProcess;
+        private uint processId;
         private SafeHandle hIOCP = invalidHandle;
         private SafeHandle hJob = invalidHandle;
 
@@ -45,9 +46,10 @@ namespace LowLevelDesign
                     PROCESS_ACCESS_RIGHTS.PROCESS_QUERY_INFORMATION |
                     PROCESS_ACCESS_RIGHTS.PROCESS_SET_QUOTA |
                     PROCESS_ACCESS_RIGHTS.PROCESS_TERMINATE, false, pid));
+                processId = pid;
             }
 
-            AssignProcessToJobObject();
+            CreateOrUpdateProcessJobObject();
 
             return WaitForTheJobToComplete();
         }
@@ -71,9 +73,10 @@ namespace LowLevelDesign
                 }
             }
 
+            processId = pi.dwProcessId;
             hProcess = new SafeFileHandle(pi.hProcess, true);
 
-            AssignProcessToJobObject();
+            CreateOrUpdateProcessJobObject();
 
             // resume process main thread
             CheckResult(PInvoke.ResumeThread(pi.hThread));
@@ -104,10 +107,11 @@ namespace LowLevelDesign
                 }
             }
 
+            processId = pi.dwProcessId;
             hProcess = new SafeFileHandle(pi.hProcess, true);
             CheckResult(PInvoke.DebugSetProcessKillOnExit(false));
 
-            AssignProcessToJobObject();
+            CreateOrUpdateProcessJobObject();
 
             // resume process main thread by detaching from the debuggee
             CheckResult(PInvoke.DebugActiveProcessStop(pi.dwProcessId));
@@ -143,12 +147,22 @@ namespace LowLevelDesign
             return envEntries.ToString();
         }
 
-        void AssignProcessToJobObject()
+        void CreateOrUpdateProcessJobObject()
         {
             var securityAttributes = new SECURITY_ATTRIBUTES();
             securityAttributes.nLength = (uint)Marshal.SizeOf(securityAttributes);
 
-            hJob = CheckResult(PInvoke.CreateJobObject(securityAttributes, "procgov-" + Guid.NewGuid()));
+            var jobName = $"procgov-{processId}";
+            var jobAlreadyCreated = false;
+
+            hJob = PInvoke.OpenJobObject(
+                Constants.JOB_OBJECT_QUERY | Constants.JOB_OBJECT_SET_ATTRIBUTES | Constants.JOB_OBJECT_TERMINATE,
+                false, jobName);
+            if (hJob.IsInvalid) {
+                hJob = CheckResult(PInvoke.CreateJobObject(securityAttributes, jobName));
+            } else {
+                jobAlreadyCreated = true;
+            }
 
             // create completion port
             hIOCP = CheckResult(PInvoke.CreateIoCompletionPort(invalidHandle, zeroHandle, UIntPtr.Zero, 1));
@@ -283,8 +297,10 @@ namespace LowLevelDesign
                     ref affinity, size));
             }
 
-            // assign a process to a job to apply constraints
-            CheckResult(PInvoke.AssignProcessToJobObject(hJob, hProcess));
+            if (!jobAlreadyCreated) {
+                // assign a process to a job to apply constraints
+                CheckResult(PInvoke.AssignProcessToJobObject(hJob, hProcess));
+            }
 
             // we start counting the process time running under the job 
             // only if timeout is specified
