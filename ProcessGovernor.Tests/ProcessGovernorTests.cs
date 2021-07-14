@@ -31,12 +31,12 @@ namespace LowLevelDesign
                     writer.WriteLine("  TEST2 = TEST VAL2  ");
                 }
 
-                var procgov = new ProcessGovernor();
-                Program.LoadCustomEnvironmentVariables(procgov, envVarsFile);
+                var session = new SessionSettings();
+                Program.LoadCustomEnvironmentVariables(session, envVarsFile);
                 Assert.Equal<KeyValuePair<string, string>>(new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) {
                     { "TEST", "TESTVAL" },
                     { "TEST2", "TEST VAL2" }
-                }, procgov.AdditionalEnvironmentVars);
+                }, session.AdditionalEnvironmentVars);
 
 
                 using (var writer = new StreamWriter(envVarsFile, false)) {
@@ -44,7 +44,7 @@ namespace LowLevelDesign
                 }
 
                 Assert.Throws<ArgumentException>(() => {
-                    Program.LoadCustomEnvironmentVariables(procgov, envVarsFile);
+                    Program.LoadCustomEnvironmentVariables(session, envVarsFile);
                 });
             } finally {
                 if (File.Exists(envVarsFile)) {
@@ -75,15 +75,15 @@ namespace LowLevelDesign
         [Fact]
         public void PrepareDebuggerCommandStringTest()
         {
-            var procgov = new ProcessGovernor() {
+            var session = new SessionSettings() {
                 CpuAffinityMask = 0x2,
                 MaxProcessMemory = 1024 * 1024
             };
-            procgov.AdditionalEnvironmentVars.Add("TEST", "TESTVAL");
-            procgov.AdditionalEnvironmentVars.Add("TEST2", "TESTVAL2");
+            session.AdditionalEnvironmentVars.Add("TEST", "TESTVAL");
+            session.AdditionalEnvironmentVars.Add("TEST2", "TESTVAL2");
 
             var appImageExe = Path.GetFileName(@"C:\temp\test.exe");
-            var debugger = Program.PrepareDebuggerCommandString(procgov, appImageExe);
+            var debugger = Program.PrepareDebuggerCommandString(session, appImageExe);
 
             var envFilePath = Program.GetAppEnvironmentFilePath(appImageExe);
             Assert.True(File.Exists(envFilePath));
@@ -94,7 +94,7 @@ namespace LowLevelDesign
                 Assert.Equal("TEST=TESTVAL\r\nTEST2=TESTVAL2\r\n", txt);
 
                 Assert.Equal(string.Format("\"{0}\" --nogui --debugger --env=\"{1}\" --cpu=0x2 --maxmem=1048576",
-                    Assembly.GetAssembly(typeof(ProcessGovernor)).Location, envFilePath), debugger);
+                    Assembly.GetAssembly(typeof(ProcessModule)).Location, envFilePath), debugger);
             } finally {
                 File.Delete(envFilePath);
             }
