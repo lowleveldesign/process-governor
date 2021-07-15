@@ -24,7 +24,7 @@ namespace LowLevelDesign
 #endif
         public static readonly TraceSource Logger = new TraceSource("[procgov]", SourceLevels.All);
 
-        static Program ()
+        static Program()
         {
             // remove default listeners (-v to enable console traces)
             Logger.Listeners.Clear();
@@ -162,14 +162,14 @@ namespace LowLevelDesign
 
             Console.CancelKeyPress += (_, ev) => { ev.Cancel = true; cts.Cancel(); };
 
-            using var job = session switch {
-                _ when debug => ProcessModule.StartProcessUnderDebuggerAndDetach(procargs, session),
-                _ when pid > 0 => ProcessModule.AttachToProcess(pid, session),
-                _ => ProcessModule.StartProcess(procargs, session)
-            };
-
             try
             {
+                using var job = session switch {
+                    _ when debug => ProcessModule.StartProcessUnderDebuggerAndDetach(procargs, session),
+                    _ when pid > 0 => ProcessModule.AttachToProcess(pid, session),
+                    _ => ProcessModule.StartProcess(procargs, session)
+                };
+
                 if (!quiet)
                 {
                     ShowHeader();

@@ -1,6 +1,7 @@
 ﻿// methods
 OpenProcess
 CreateProcess
+TerminateProcess
 GetCurrentProcess
 ResumeThread
 DuplicateHandle
@@ -23,9 +24,12 @@ GetConsoleWindow
 WaitForSingleObject
 
 // structures
+GROUP_AFFINITY
 IO_COUNTERS
 JOBOBJECT_BASIC_ACCOUNTING_INFORMATION
 JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+JOBOBJECT_CPU_RATE_CONTROL_INFORMATION
+JOBOBJECT_NET_RATE_CONTROL_INFORMATION
 
 // job constants
 JOB_OBJECT_ASSIGN_PROCESS

@@ -30,7 +30,7 @@ namespace LowLevelDesign
                 if (!Win32JobModule.TryOpen(hProcess, pid, session.PropagateOnChildProcesses,
                         session.ClockTimeLimitInMilliseconds, out var job))
                 {
-                    job = Win32JobModule.CreateAndAssignToProcess(hProcess, pid, 
+                    job = Win32JobModule.CreateAndAssignToProcess(hProcess, pid,
                             session.PropagateOnChildProcesses, session.ClockTimeLimitInMilliseconds);
                 }
                 Win32JobModule.SetLimits(job, session);
@@ -60,19 +60,29 @@ namespace LowLevelDesign
                         processCreationFlags, penv, null, si, out pi));
                 }
             }
-
             var hProcess = new SafeFileHandle(pi.hProcess, true);
 
-            var job = Win32JobModule.CreateAndAssignToProcess(hProcess, pi.dwProcessId,
-                        session.PropagateOnChildProcesses, session.ClockTimeLimitInMilliseconds);
-            Win32JobModule.SetLimits(job, session);
+            try
+            {
+                var job = Win32JobModule.CreateAndAssignToProcess(hProcess, pi.dwProcessId,
+                            session.PropagateOnChildProcesses, session.ClockTimeLimitInMilliseconds);
+                Win32JobModule.SetLimits(job, session);
 
-            // resume process main thread
-            CheckWin32Result(PInvoke.ResumeThread(pi.hThread));
-            // and we can close the thread handle
-            PInvoke.CloseHandle(pi.hThread);
+                // resume process main thread
+                CheckWin32Result(PInvoke.ResumeThread(pi.hThread));
 
-            return job;
+                return job;
+            }
+            catch
+            {
+                PInvoke.TerminateProcess(hProcess, 1);
+                throw;
+            }
+            finally
+            {
+                // and we can close the thread handle
+                PInvoke.CloseHandle(pi.hThread);
+            }
         }
 
         public static unsafe Win32Job StartProcessUnderDebuggerAndDetach(IList<string> procargs, SessionSettings session)
@@ -100,7 +110,7 @@ namespace LowLevelDesign
             var hProcess = new SafeFileHandle(pi.hProcess, true);
             CheckWin32Result(PInvoke.DebugSetProcessKillOnExit(false));
 
-            var job = Win32JobModule.CreateAndAssignToProcess(hProcess, pi.dwProcessId, 
+            var job = Win32JobModule.CreateAndAssignToProcess(hProcess, pi.dwProcessId,
                             session.PropagateOnChildProcesses, session.ClockTimeLimitInMilliseconds);
             Win32JobModule.SetLimits(job, session);
 
