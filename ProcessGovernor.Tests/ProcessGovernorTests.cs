@@ -1,27 +1,29 @@
-﻿using System;
+﻿using NUnit.Framework;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
-using Xunit;
 
 namespace LowLevelDesign
 {
+
+    [TestFixture]
     public class ProcessGovernorTests
     {
-        [Fact]
+        [Test]
         public void CalculateAffinityMaskFromCpuCountTest()
         {
-            Assert.Equal(0x1UL, Program.CalculateAffinityMaskFromCpuCount(1));
-            Assert.Equal(0x3UL, Program.CalculateAffinityMaskFromCpuCount(2));
-            Assert.Equal(0xfUL, Program.CalculateAffinityMaskFromCpuCount(4));
-            Assert.Equal(0x1ffUL, Program.CalculateAffinityMaskFromCpuCount(9));
-            Assert.Equal(0xffffffffffffffffUL, Program.CalculateAffinityMaskFromCpuCount(64));
+            Assert.AreEqual(0x1UL, Program.CalculateAffinityMaskFromCpuCount(1));
+            Assert.AreEqual(0x3UL, Program.CalculateAffinityMaskFromCpuCount(2));
+            Assert.AreEqual(0xfUL, Program.CalculateAffinityMaskFromCpuCount(4));
+            Assert.AreEqual(0x1ffUL, Program.CalculateAffinityMaskFromCpuCount(9));
+            Assert.AreEqual(0xffffffffffffffffUL, Program.CalculateAffinityMaskFromCpuCount(64));
         }
 
-        [Fact]
+        [Test]
         public void LoadCustomEnvironmentVariablesTest()
         {
             var envVarsFile = Path.GetTempFileName();
@@ -33,7 +35,7 @@ namespace LowLevelDesign
 
                 var session = new SessionSettings();
                 Program.LoadCustomEnvironmentVariables(session, envVarsFile);
-                Assert.Equal<KeyValuePair<string, string>>(new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) {
+                CollectionAssert.AreEqual(new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) {
                     { "TEST", "TESTVAL" },
                     { "TEST2", "TEST VAL2" }
                 }, session.AdditionalEnvironmentVars);
@@ -53,26 +55,26 @@ namespace LowLevelDesign
             }
         }
 
-        [Fact]
+        [Test]
         public void ParseMemoryStringTest()
         {
-            Assert.Equal(2 * 1024u, Program.ParseMemoryString("2K"));
-            Assert.Equal(3 * 1024u * 1024u, Program.ParseMemoryString("3M"));
-            Assert.Equal(3 * 1024u * 1024u * 1024u, Program.ParseMemoryString("3G"));
+            Assert.AreEqual(2 * 1024u, Program.ParseMemoryString("2K"));
+            Assert.AreEqual(3 * 1024u * 1024u, Program.ParseMemoryString("3M"));
+            Assert.AreEqual(3 * 1024u * 1024u * 1024u, Program.ParseMemoryString("3G"));
         }
 
-        [Fact]
+        [Test]
         public void ParseTimeStringToMillisecondsTest()
         {
-            Assert.Equal(10u, Program.ParseTimeStringToMilliseconds("10"));
-            Assert.Equal(10u, Program.ParseTimeStringToMilliseconds("10ms"));
-            Assert.Equal(10000u, Program.ParseTimeStringToMilliseconds("10s"));
-            Assert.Equal(600000u, Program.ParseTimeStringToMilliseconds("10m"));
-            Assert.Equal(36000000u, Program.ParseTimeStringToMilliseconds("10h"));
+            Assert.AreEqual(10u, Program.ParseTimeStringToMilliseconds("10"));
+            Assert.AreEqual(10u, Program.ParseTimeStringToMilliseconds("10ms"));
+            Assert.AreEqual(10000u, Program.ParseTimeStringToMilliseconds("10s"));
+            Assert.AreEqual(600000u, Program.ParseTimeStringToMilliseconds("10m"));
+            Assert.AreEqual(36000000u, Program.ParseTimeStringToMilliseconds("10h"));
             Assert.Throws<FormatException>(() => Program.ParseTimeStringToMilliseconds("sdfms"));
         }
 
-        [Fact]
+        [Test]
         public void PrepareDebuggerCommandStringTest()
         {
             var session = new SessionSettings() {
@@ -91,9 +93,9 @@ namespace LowLevelDesign
             try {
 
                 var txt = File.ReadAllText(envFilePath);
-                Assert.Equal("TEST=TESTVAL\r\nTEST2=TESTVAL2\r\n", txt);
+                Assert.AreEqual("TEST=TESTVAL\r\nTEST2=TESTVAL2\r\n", txt);
 
-                Assert.Equal(string.Format("\"{0}\" --nogui --debugger --env=\"{1}\" --cpu=0x2 --maxmem=1048576",
+                Assert.AreEqual(string.Format("\"{0}\" --nogui --debugger --env=\"{1}\" --cpu=0x2 --maxmem=1048576",
                     Assembly.GetAssembly(typeof(ProcessModule)).Location, envFilePath), debugger);
             } finally {
                 File.Delete(envFilePath);

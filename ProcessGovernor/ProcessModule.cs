@@ -17,16 +17,12 @@ namespace LowLevelDesign
         {
             using (new DebugPrivilege(logger))
             {
-                // FIXME check if there is no procgov already monitoring this process
-
                 var hProcess = CheckWin32Result(PInvoke.OpenProcess_SafeHandle(
                     PROCESS_ACCESS_RIGHTS.PROCESS_QUERY_INFORMATION |
                     PROCESS_ACCESS_RIGHTS.PROCESS_SET_QUOTA |
                     PROCESS_ACCESS_RIGHTS.PROCESS_DUP_HANDLE |
                     PROCESS_ACCESS_RIGHTS.PROCESS_TERMINATE, false, pid));
 
-                // try to open the job object
-                // Win32Job(hJob) or Win32Job()
                 if (!Win32JobModule.TryOpen(hProcess, pid, session.PropagateOnChildProcesses,
                         session.ClockTimeLimitInMilliseconds, out var job))
                 {
