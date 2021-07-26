@@ -1,0 +1,31 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!-- Read this before creating packages: https://chocolatey.org/docs/create-packages -->
+<!-- It is especially important to read the above link to understand additional requirements when publishing packages to the community feed aka dot org (https://chocolatey.org/packages). -->
+
+<!-- Do not remove this test for UTF-8: if “Ω” doesn’t appear as greek uppercase omega letter enclosed in quotation marks, you should use an editor that supports UTF-8, not this one. -->
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>procgov</id>
+    <version>1.0.0.0</version>
+    <!-- == SOFTWARE SPECIFIC SECTION == -->
+    <title>procgov</title>
+    <authors>Sebastian Solnica</authors>
+    <projectUrl>https://github.com/lowleveldesign/process-governor</projectUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <projectSourceUrl>https://github.com/lowleveldesign/process-governor</projectSourceUrl>
+    <docsUrl>https://github.com/lowleveldesign/process-governor#readme</docsUrl>
+    <bugTrackerUrl>https://github.com/lowleveldesign/process-governor/issues</bugTrackerUrl>
+    <tags>windows process limit</tags>
+    <summary>This application allows you to put various limits on a Windows process.</summary>
+    <description>This application allows you to set constraints on a process, including CPU affinity, rate, committed memory, used physical memory (Working Set) and more. It uses a job object for this purpose.
+
+You may set limits on a newly created process or on an already running one. 
+
+Starting from version 2.8, it is possible to update once set the limits. Simply run procgov providing new limits and the target process ID.
+
+REMEMBER to always use procgov with the same bitness as your application.</description>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>

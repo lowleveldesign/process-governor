@@ -1,0 +1,4 @@
+VERIFICATION
+
+The hashes below were computed for the executable files contained in this package. You may calculate the hashes for the official release (available at https://github.com/lowleveldesign/process-governor/releases) and compare them with these values to verify the installed binaries.
+

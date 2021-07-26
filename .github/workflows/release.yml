@@ -1,0 +1,79 @@
+name: release
+
+on: 
+  push:
+    tags:
+      - '*'
+
+jobs:
+  build:
+
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    
+    - name: Setup nuget
+      uses: nuget/setup-nuget@v1
+
+    - run: |
+        Invoke-WebRequest -OutFile Update-AssemblyInfoVersionFiles.ps1 https://gist.githubusercontent.com/lowleveldesign/663de4e0d5a071f938e6f7c82d7ca9a0/raw/Update-AssemblyInfoVersionFiles.ps1
+        ./Update-AssemblyInfoVersionFiles.ps1
+      shell: pwsh
+    
+    - name: Restore packages
+      run: nuget restore ProcessGovernor.sln
+    
+    - name: Setup MSBuild.exe
+      uses: microsoft/setup-msbuild@v1.0.2
+    
+    - name: Build Release using MSBuild
+      run: msbuild ProcessGovernor.sln -m /p:Configuration=Release /p:Platform=x86
+
+    - name: Build Release using MSBuild
+      run: msbuild ProcessGovernor.sln -m /p:Configuration=Release /p:Platform=x64
+
+    - name: Rename 64-bit artifacts
+      run: |
+        Rename-Item -Path "ProcessGovernor\bin\x64\Release\procgov.exe" -NewName "procgov64.exe"
+        Rename-Item -Path "ProcessGovernor\bin\x64\Release\procgov.pdb" -NewName "procgov64.pdb"
+
+    - uses: actions/upload-artifact@v2
+      with:
+        name: procgov
+        path: |
+          ProcessGovernor\bin\x86\Release\procgov.exe
+          ProcessGovernor\bin\x86\Release\procgov.pdb
+          ProcessGovernor\bin\x64\Release\procgov64.exe
+          ProcessGovernor\bin\x64\Release\procgov64.pdb
+
+    - name: Copy the binary to Chocolatey path
+      run: |
+          Copy-Item ProcessGovernor\bin\x86\Release\procgov.exe choco\tools
+          Copy-Item ProcessGovernor\bin\x86\Release\procgov.pdb choco\tools
+          Copy-Item ProcessGovernor\bin\x64\Release\procgov64.exe choco\tools
+          Copy-Item ProcessGovernor\bin\x64\Release\procgov64.pdb choco\tools
+
+    - run: |
+        Invoke-WebRequest -OutFile Print-FileHashes.ps1 https://gist.githubusercontent.com/lowleveldesign/f1afd42662ee8dabe07cf8cbfe25e6a1/raw/Print-FileHashes.ps1
+        "## procgov.exe" >> choco\tools\VERIFICATION.txt
+        ./Print-FileHashes.ps1 -FilePath choco\tools\procgov.exe >> choco\tools\VERIFICATION.txt
+        "" >> choco\tools\VERIFICATION.txt
+        "## procgov64.exe" >> choco\tools\VERIFICATION.txt
+        ./Print-FileHashes.ps1 -FilePath choco\tools\procgov64.exe >> choco\tools\VERIFICATION.txt
+      shell: pwsh
+
+    - name: Build Chocolatey package
+      run: choco pack
+      working-directory: choco
+     
+    - uses: actions/upload-artifact@v2
+      with:
+        name: procgov-pkg
+        path: choco\procgov.*.nupkg
+
+    - name: Release Chocolatey package
+      run: choco push $(Resolve-Path "procgov.*.nupkg") -s https://push.chocolatey.org/ -k "$env:CHOCO_KEY"
+      env:
+        CHOCO_KEY: ${{ secrets.CHOCO_KEY }}
+      working-directory: choco

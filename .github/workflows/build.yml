@@ -36,7 +36,7 @@ jobs:
 
     - uses: actions/upload-artifact@v2
       with:
-        name: wtrace
+        name: procgov
         path: |
           ProcessGovernor\bin\x86\Release\procgov.exe
           ProcessGovernor\bin\x86\Release\procgov.pdb
