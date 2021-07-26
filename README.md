@@ -1,6 +1,8 @@
 
 # Process Governor
 
+![.NET](https://github.com/lowleveldesign/process-governor/workflows/build/badge.svg)
+
 This application allows you to set constraints on a process. It uses [a job object](https://msdn.microsoft.com/en-us/library/windows/desktop/ms684161(v=vs.85).aspx) for this purpose. 
 
 Procgov requires .NET 4.6.2 to run and you may download the latest version binaries from the [release page](https://github.com/lowleveldesign/process-governor/releases) (**REMEMBER to always use procgov with the same bitness as your application**).
