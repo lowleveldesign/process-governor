@@ -33,26 +33,25 @@ jobs:
     - name: Build Release using MSBuild
       run: msbuild ProcessGovernor.sln -m /p:Configuration=Release /p:Platform=x64
 
-    - name: Rename 64-bit artifacts
+    - name: Copy artifacts
       run: |
-        Rename-Item -Path "ProcessGovernor\bin\x64\Release\procgov.exe" -NewName "procgov64.exe"
-        Rename-Item -Path "ProcessGovernor\bin\x64\Release\procgov.pdb" -NewName "procgov64.pdb"
+        New-Item -Type Directory -Path artifacts
+        Copy-Item -Path "ProcessGovernor\bin\x86\Release\procgov.exe" -Destination "artifacts\procgov.exe"
+        Copy-Item -Path "ProcessGovernor\bin\x86\Release\procgov.pdb" -Destination "artifacts\procgov.pdb"
+        Copy-Item -Path "ProcessGovernor\bin\x64\Release\procgov.exe" -Destination "artifacts\procgov64.exe"
+        Copy-Item -Path "ProcessGovernor\bin\x64\Release\procgov.pdb" -Destination "artifacts\procgov64.pdb"
 
     - uses: actions/upload-artifact@v2
       with:
         name: procgov
-        path: |
-          ProcessGovernor\bin\x86\Release\procgov.exe
-          ProcessGovernor\bin\x86\Release\procgov.pdb
-          ProcessGovernor\bin\x64\Release\procgov64.exe
-          ProcessGovernor\bin\x64\Release\procgov64.pdb
+        path: artifacts/*
 
     - name: Copy the binary to Chocolatey path
       run: |
-          Copy-Item ProcessGovernor\bin\x86\Release\procgov.exe choco\tools
-          Copy-Item ProcessGovernor\bin\x86\Release\procgov.pdb choco\tools
-          Copy-Item ProcessGovernor\bin\x64\Release\procgov64.exe choco\tools
-          Copy-Item ProcessGovernor\bin\x64\Release\procgov64.pdb choco\tools
+          Copy-Item artifacts\procgov.exe choco\tools
+          Copy-Item artifacts\procgov.pdb choco\tools
+          Copy-Item artifacts\procgov64.exe choco\tools
+          Copy-Item artifacts\procgov64.pdb choco\tools
 
     - run: |
         Invoke-WebRequest -OutFile Print-FileHashes.ps1 https://gist.githubusercontent.com/lowleveldesign/f1afd42662ee8dabe07cf8cbfe25e6a1/raw/Print-FileHashes.ps1
