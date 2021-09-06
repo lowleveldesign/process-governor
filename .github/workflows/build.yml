@@ -29,16 +29,15 @@ jobs:
     - name: Build Release using MSBuild
       run: msbuild ProcessGovernor.sln -m /p:Configuration=Release /p:Platform=x64
 
-    - name: Rename 64-bit artifacts
+    - name: Copy artifacts
       run: |
-        Rename-Item -Path "ProcessGovernor\bin\x64\Release\procgov.exe" -NewName "procgov64.exe"
-        Rename-Item -Path "ProcessGovernor\bin\x64\Release\procgov.pdb" -NewName "procgov64.pdb"
+        New-Item -Type Directory -Path artifacts
+        Copy-Item -Path "ProcessGovernor\bin\x86\Release\procgov.exe" -Destination "artifacts\procgov.exe"
+        Copy-Item -Path "ProcessGovernor\bin\x86\Release\procgov.pdb" -Destination "artifacts\procgov.pdb"
+        Copy-Item -Path "ProcessGovernor\bin\x64\Release\procgov.exe" -Destination "artifacts\procgov64.exe"
+        Copy-Item -Path "ProcessGovernor\bin\x64\Release\procgov.pdb" -Destination "artifacts\procgov64.pdb"
 
     - uses: actions/upload-artifact@v2
       with:
         name: procgov
-        path: |
-          ProcessGovernor\bin\x86\Release\procgov.exe
-          ProcessGovernor\bin\x86\Release\procgov.pdb
-          ProcessGovernor\bin\x64\Release\procgov64.exe
-          ProcessGovernor\bin\x64\Release\procgov64.pdb
+        path: artifacts/*
