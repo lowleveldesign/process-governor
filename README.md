@@ -60,6 +60,8 @@ Options:
       --uninstall            Uninstall procgov for a specific process.
       --debugger             Internal - do not use.
   -q, --quiet                Do not show procgov messages.
+      --nowait               Does not wait for the target process(es) to
+                             complete.
   -v, --verbose              Show verbose messages in the console.
   -h, --help                 Show this message and exit
   -?                         Show this message and exit

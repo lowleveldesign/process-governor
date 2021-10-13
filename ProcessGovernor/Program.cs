@@ -33,7 +33,7 @@ namespace LowLevelDesign
         public static int Main(string[] args)
         {
             var procargs = new List<string>();
-            bool showhelp = false, nogui = false, debug = false, quiet = false;
+            bool showhelp = false, nogui = false, debug = false, quiet = false, nowait = false;
             var pid = 0u;
             var registryOperation = RegistryOperation.NONE;
 
@@ -88,6 +88,7 @@ namespace LowLevelDesign
                     { "debugger", "Internal - do not use.",
                         v => debug = v != null },
                     { "q|quiet", "Do not show procgov messages.", v => quiet = v != null },
+                    { "nowait", "Does not wait for the target process(es) to complete.", v => nowait = v != null },
                     { "v|verbose", "Show verbose messages in the console.", v => {
                         if (v != null)
                         {
@@ -174,9 +175,15 @@ namespace LowLevelDesign
                 {
                     ShowHeader();
                     ShowLimits(session);
+
+                    if (!nowait)
+                    {
+                        Console.WriteLine("Press Ctrl-C to end execution without terminating the process.");
+                        Console.WriteLine();
+                    }
                 }
 
-                return Win32JobModule.WaitForTheJobToComplete(job, cts.Token);
+                return nowait ? 0 : Win32JobModule.WaitForTheJobToComplete(job, cts.Token);
             }
             catch (Win32Exception ex)
             {
@@ -352,8 +359,6 @@ namespace LowLevelDesign
                 Console.WriteLine();
                 Console.WriteLine("All configured limits will also apply to the child processes.");
             }
-            Console.WriteLine();
-            Console.WriteLine("Press Ctrl-C to end execution without terminating the process.");
             Console.WriteLine();
         }
 
