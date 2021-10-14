@@ -5,9 +5,13 @@
 
 This application allows you to set constraints on a process. It uses [a job object](https://msdn.microsoft.com/en-us/library/windows/desktop/ms684161(v=vs.85).aspx) for this purpose. 
 
-Procgov requires .NET 4.6.2 to run and you may download the latest version binaries from the [release page](https://github.com/lowleveldesign/process-governor/releases) or install it with [Chocolatey](https://chocolatey.org/): `choco install procgov`.
+Procgov requires .NET 4.6.2 to run and you may download the latest version binaries from the [release page](https://github.com/lowleveldesign/process-governor/releases) or install it with [Chocolatey](https://chocolatey.org/):
 
-**REMEMBER to always use procgov with the same bitness as your application**.
+```
+choco install procgov
+```
+
+:warning: Always use procgov executable with the same bitness as your application.
 
 The available options are:
 
@@ -63,7 +67,7 @@ Options:
       --debugger             Internal - do not use.
   -q, --quiet                Do not show procgov messages.
       --nowait               Does not wait for the target process(es) to
-                             complete.
+                             exit.
   -v, --verbose              Show verbose messages in the console.
   -h, --help                 Show this message and exit
   -?                         Show this message and exit

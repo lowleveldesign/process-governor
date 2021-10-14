@@ -88,7 +88,7 @@ namespace LowLevelDesign
                     { "debugger", "Internal - do not use.",
                         v => debug = v != null },
                     { "q|quiet", "Do not show procgov messages.", v => quiet = v != null },
-                    { "nowait", "Does not wait for the target process(es) to complete.", v => nowait = v != null },
+                    { "nowait", "Does not wait for the target process(es) to exit.", v => nowait = v != null },
                     { "v|verbose", "Show verbose messages in the console.", v => {
                         if (v != null)
                         {
