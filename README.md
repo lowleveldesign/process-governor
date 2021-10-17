@@ -21,6 +21,8 @@ Usage: procgov [OPTIONS] args
 Options:
   -m, --maxmem=VALUE         Max committed memory usage in bytes (accepted
                                suffixes: K, M or G).
+      --maxjobmem=VALUE      Max committed memory usage for all the processes
+                               in the job (accepted suffixes: K, M, or G). 
       --maxws=VALUE          Max working set size in bytes (accepted
                                suffixes: K, M, or G). Must be set with minws.
       --minws=VALUE          Min working set size in bytes (accepted
