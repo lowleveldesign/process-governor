@@ -43,6 +43,8 @@ namespace LowLevelDesign
             {
                     { "m|maxmem=", "Max committed memory usage in bytes (accepted suffixes: K, M, or G).",
                         v => { session.MaxProcessMemory = ParseMemoryString(v); } },
+                    { "maxjobmem=", "Max committed memory usage for all the processes in the job (accepted suffixes: K, M, or G).",
+                        v => { session.MaxJobMemory = ParseMemoryString(v); } },
                     { "maxws=", "Max working set size in bytes (accepted suffixes: K, M, or G). Must be set with minws.",
                         v => { session.MaxWorkingSetSize = ParseMemoryString(v); } },
                     { "minws=", "Min working set size in bytes (accepted suffixes: K, M, or G). Must be set with maxws.",
@@ -333,25 +335,27 @@ namespace LowLevelDesign
 
         static void ShowLimits(SessionSettings session)
         {
-            Console.WriteLine("CPU affinity mask:                      {0}", session.CpuAffinityMask != 0 ?
+            Console.WriteLine("CPU affinity mask:                          {0}", session.CpuAffinityMask != 0 ?
                 $"0x{session.CpuAffinityMask:X}" : "(not set)");
-            Console.WriteLine("Max CPU rate:                           {0}", session.CpuMaxRate > 0 ?
+            Console.WriteLine("Max CPU rate:                               {0}", session.CpuMaxRate > 0 ?
                 $"{session.CpuMaxRate}%" : "(not set)");
-            Console.WriteLine("Max bandwidth (B):                      {0}", session.MaxBandwidth > 0 ?
+            Console.WriteLine("Max bandwidth (B):                          {0}", session.MaxBandwidth > 0 ?
                 $"{(session.MaxBandwidth):#,0}" : "(not set)");
-            Console.WriteLine("Maximum committed memory (MB):          {0}", session.MaxProcessMemory > 0 ?
+            Console.WriteLine("Maximum committed memory (MB):              {0}", session.MaxProcessMemory > 0 ?
                 $"{(session.MaxProcessMemory / 1048576):0,0}" : "(not set)");
-            Console.WriteLine("Minimum WS memory (MB):                 {0}", session.MinWorkingSetSize > 0 ?
+            Console.WriteLine("Maximum job committed memory (MB):          {0}", session.MaxJobMemory > 0 ?
+                $"{(session.MaxJobMemory / 1048576):0,0}" : "(not set)");
+            Console.WriteLine("Minimum WS memory (MB):                     {0}", session.MinWorkingSetSize > 0 ?
                 $"{(session.MinWorkingSetSize / 1048576):0,0}" : "(not set)");
-            Console.WriteLine("Maximum WS memory (MB):                 {0}", session.MaxWorkingSetSize > 0 ?
+            Console.WriteLine("Maximum WS memory (MB):                     {0}", session.MaxWorkingSetSize > 0 ?
                 $"{(session.MaxWorkingSetSize / 1048576):0,0}" : "(not set)");
-            Console.WriteLine("Preferred NUMA node:                    {0}", session.NumaNode != 0xffff ?
+            Console.WriteLine("Preferred NUMA node:                        {0}", session.NumaNode != 0xffff ?
                 $"{session.NumaNode}" : "(not set)");
-            Console.WriteLine("Process user-time execution limit (ms): {0}", session.ProcessUserTimeLimitInMilliseconds > 0 ?
+            Console.WriteLine("Process user-time execution limit (ms):     {0}", session.ProcessUserTimeLimitInMilliseconds > 0 ?
                 $"{session.ProcessUserTimeLimitInMilliseconds:0,0}" : "(not set)");
-            Console.WriteLine("Job user-time execution limit (ms):     {0}", session.JobUserTimeLimitInMilliseconds > 0 ?
+            Console.WriteLine("Job user-time execution limit (ms):         {0}", session.JobUserTimeLimitInMilliseconds > 0 ?
                 $"{session.JobUserTimeLimitInMilliseconds:0,0}" : "(not set)");
-            Console.WriteLine("Clock-time execution limit (ms):        {0}", session.ClockTimeLimitInMilliseconds > 0 ?
+            Console.WriteLine("Clock-time execution limit (ms):            {0}", session.ClockTimeLimitInMilliseconds > 0 ?
                 $"{session.ClockTimeLimitInMilliseconds:0,0}" : "(not set)");
 
             if (session.PropagateOnChildProcesses)

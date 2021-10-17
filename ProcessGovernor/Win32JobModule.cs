@@ -93,6 +93,13 @@ namespace LowLevelDesign
                 flags |= JOB_OBJECT_LIMIT.JOB_OBJECT_LIMIT_PROCESS_MEMORY;
                 limitInfo.ProcessMemoryLimit = (UIntPtr)session.MaxProcessMemory;
             }
+
+            if (session.MaxJobMemory > 0)
+            {
+                flags |= JOB_OBJECT_LIMIT.JOB_OBJECT_LIMIT_JOB_MEMORY;
+                limitInfo.JobMemoryLimit = (UIntPtr)session.MaxJobMemory;
+            }
+
             if (session.MaxWorkingSetSize > 0)
             {
                 flags |= JOB_OBJECT_LIMIT.JOB_OBJECT_LIMIT_WORKINGSET;

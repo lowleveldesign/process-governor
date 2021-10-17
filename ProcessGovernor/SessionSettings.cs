@@ -12,6 +12,8 @@ namespace LowLevelDesign
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         public ulong MaxProcessMemory { get; set; }
+        
+        public ulong MaxJobMemory { get; set; }
 
         public ulong MaxWorkingSetSize { get; set; }
 
