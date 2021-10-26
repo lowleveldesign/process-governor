@@ -77,7 +77,7 @@ Options:
 
 You may set limits on a newly created process or on an already running one. To **attach to a process** use the **-p|--pid** switch, eg. `procgov --maxmem 40M --pid 1234`. To **start a new process** with the limits applied, just pass the process image path and its arguments as procgov arguments, eg. `procgov --maxmem 40M c:\temp\test.exe arg1 arg2"`.
 
-Starting from version 2.8, it is possible to **update once set the limits**. Simply run procgov providing new limits and the target process ID. Procgov will update only the specified limits. Let's have a look at an example to understand this behavior better:
+Starting from version 2.8, it is possible to **update once set limits**. Simply run procgov providing new limits and the target process ID. Procgov will update only the specified limits. Let's have a look at an example to understand this behavior better:
 
 ```powershell
 PS> procgov64 -m 100M -c 2 notepad.exe
