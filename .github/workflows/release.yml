@@ -36,10 +36,10 @@ jobs:
     - name: Copy artifacts
       run: |
         New-Item -Type Directory -Path artifacts
-        Copy-Item -Path "ProcessGovernor\bin\x86\Release\procgov.exe" -Destination "artifacts\procgov32.exe"
-        Copy-Item -Path "ProcessGovernor\bin\x86\Release\procgov.pdb" -Destination "artifacts\procgov32.pdb"
-        Copy-Item -Path "ProcessGovernor\bin\x64\Release\procgov.exe" -Destination "artifacts\procgov64.exe"
-        Copy-Item -Path "ProcessGovernor\bin\x64\Release\procgov.pdb" -Destination "artifacts\procgov64.pdb"
+        Copy-Item -Path "procgov/bin/release/net6.0-windows/win-x86/publish/procgov.exe" -Destination "artifacts/procgov32.exe"
+        Copy-Item -Path "procgov/bin/release/net6.0-windows/win-x86/publish/procgov.pdb" -Destination "artifacts/procgov32.pdb"
+        Copy-Item -Path "procgov/bin/release/net6.0-windows/win-x64/publish/procgov.exe" -Destination "artifacts/procgov64.exe"
+        Copy-Item -Path "procgov/bin/release/net6.0-windows/win-x64/publish/procgov.pdb" -Destination "artifacts/procgov64.pdb"
 
     - uses: actions/upload-artifact@v2
       with:

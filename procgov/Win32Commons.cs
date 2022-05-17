@@ -11,9 +11,10 @@ namespace LowLevelDesign
         {
             return result switch {
                 SafeHandle handle when !handle.IsInvalid => result,
-                HANDLE handle when Constants.INVALID_HANDLE_VALUE != handle => result,
+                HANDLE handle when PInvoke.INVALID_HANDLE_VALUE != handle.Value => result,
                 uint n when n != 0xffffffff => result,
                 bool b when b => result,
+                BOOL b when b => result,
                 _ => throw new Win32Exception()
             };
         }

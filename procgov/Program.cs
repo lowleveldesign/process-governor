@@ -1,17 +1,16 @@
 ﻿using Microsoft.Win32;
 using NDesk.Options;
-using System;
-using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
-using System.IO;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Security.Principal;
 using System.Text;
-using System.Threading;
 using Windows.Win32;
 using Windows.Win32.UI.WindowsAndMessaging;
+
+[assembly: InternalsVisibleTo("procgov-tests")]
 
 namespace LowLevelDesign
 {
@@ -22,7 +21,7 @@ namespace LowLevelDesign
 #else
         const bool debugOutput = false;
 #endif
-        public static readonly TraceSource Logger = new TraceSource("[procgov]", SourceLevels.All);
+        public static readonly TraceSource Logger = new("[procgov]", SourceLevels.All);
 
         static Program()
         {
@@ -57,7 +56,7 @@ namespace LowLevelDesign
                         "If you also provide the NUMA node, this setting will apply only to this node.",
                         v => {
                             if (v.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) {
-                                session.CpuAffinityMask = ulong.Parse(v.Substring(2), NumberStyles.HexNumber);
+                                session.CpuAffinityMask = ulong.Parse(v[2..], NumberStyles.HexNumber);
                             } else {
                                 session.CpuAffinityMask = CalculateAffinityMaskFromCpuCount(int.Parse(v));
                             }
@@ -73,20 +72,23 @@ namespace LowLevelDesign
                     { "newconsole", "Start the process in a new console window.", v => { session.SpawnNewConsoleWindow = v != null; } },
                     { "nogui", "Hide Process Governor console window (set always when installed as debugger).",
                         v => { nogui = v != null; } },
-                    { "p|pid=", "Attach to an already running process", (uint v) => pid = v },
+                    { "p|pid=", "Attach to an already running process", v => pid = uint.Parse(v) },
                     { "install", "Install procgov as a debugger for a specific process using Image File Executions. " +
                                  "DO NOT USE this option if the process you want to control starts child instances of itself (for example, Chrome).",
                         v => { registryOperation = RegistryOperation.INSTALL; } },
                     { "t|timeout=", "Kill the process (with -r, also all its children) if it does not finish within the specified time. " +
                                     "Add suffix to define the time unit. Valid suffixes are: ms, s, m, h.",
-                        (string v) => session.ClockTimeLimitInMilliseconds = ParseTimeStringToMilliseconds(v) },
+                        v => session.ClockTimeLimitInMilliseconds = ParseTimeStringToMilliseconds(v) },
                     { "process-utime=", "Kill the process (with -r, also applies to its children) if it exceeds the given " +
                                     "user-mode execution time. Add suffix to define the time unit. Valid suffixes are: ms, s, m, h.",
-                        (string v) => session.ProcessUserTimeLimitInMilliseconds = ParseTimeStringToMilliseconds(v) },
+                        v => session.ProcessUserTimeLimitInMilliseconds = ParseTimeStringToMilliseconds(v) },
                     { "job-utime=", "Kill the process (with -r, also all its children) if the total user-mode execution " +
                                    "time exceed the specified value. Add suffix to define the time unit. Valid suffixes are: ms, s, m, h.",
-                        (string v) => session.JobUserTimeLimitInMilliseconds = ParseTimeStringToMilliseconds(v) },
+                        v => session.JobUserTimeLimitInMilliseconds = ParseTimeStringToMilliseconds(v) },
                     { "uninstall", "Uninstall procgov for a specific process.", v => { registryOperation = RegistryOperation.UNINSTALL; } },
+                    { "enable-privileges=", "Enables the specified privileges in the remote process. You may specify multiple privileges " +
+                                   "by splitting them with commas, for example, 'SeDebugPrivilege,SeLockMemoryPrivilege'",
+                        v => session.Privileges = v.Split(',', StringSplitOptions.RemoveEmptyEntries) },
                     { "debugger", "Internal - do not use.",
                         v => debug = v != null },
                     { "q|quiet", "Do not show procgov messages.", v => quiet = v != null },
@@ -167,25 +169,37 @@ namespace LowLevelDesign
 
             try
             {
-                using var job = session switch {
-                    _ when debug => ProcessModule.StartProcessUnderDebuggerAndDetach(procargs, session),
-                    _ when pid > 0 => ProcessModule.AttachToProcess(pid, session),
-                    _ => ProcessModule.StartProcess(procargs, session)
-                };
-
                 if (!quiet)
                 {
                     ShowHeader();
                     ShowLimits(session);
-
-                    if (!nowait)
-                    {
-                        Console.WriteLine("Press Ctrl-C to end execution without terminating the process.");
-                        Console.WriteLine();
-                    }
                 }
 
-                return nowait ? 0 : Win32JobModule.WaitForTheJobToComplete(job, cts.Token);
+                var (job, privs) = session switch
+                {
+                    _ when debug => ProcessModule.StartProcessUnderDebuggerAndDetach(procargs, session),
+                    _ when pid > 0 => ProcessModule.AttachToProcess(pid, session),
+                    _ => ProcessModule.StartProcess(procargs, session)
+                };
+                try
+                {
+                    if (!quiet)
+                    {
+                        ShowPrivileges(privs);
+
+                        if (!nowait)
+                        {
+                            Console.WriteLine("Press Ctrl-C to end execution without terminating the process.");
+                            Console.WriteLine();
+                        }
+                    }
+
+                    return nowait ? 0 : Win32JobModule.WaitForTheJobToComplete(job, cts.Token);
+                }
+                finally
+                {
+                    job.Dispose();
+                }
             }
             catch (Win32Exception ex)
             {
@@ -203,19 +217,19 @@ namespace LowLevelDesign
         {
             if (v.EndsWith("ms", StringComparison.OrdinalIgnoreCase))
             {
-                return uint.Parse(v.Substring(0, v.Length - 2));
+                return uint.Parse(v[0..^2]);
             }
             if (v.EndsWith("s", StringComparison.OrdinalIgnoreCase))
             {
-                return uint.Parse(v.Substring(0, v.Length - 1)) * 1000;
+                return uint.Parse(v[0..^1]) * 1000;
             }
             if (v.EndsWith("m", StringComparison.OrdinalIgnoreCase))
             {
-                return uint.Parse(v.Substring(0, v.Length - 1)) * 1000 * 60;
+                return uint.Parse(v[0..^1]) * 1000 * 60;
             }
             if (v.EndsWith("h", StringComparison.OrdinalIgnoreCase))
             {
-                return uint.Parse(v.Substring(0, v.Length - 1)) * 1000 * 60 * 60;
+                return uint.Parse(v[0..^1]) * 1000 * 60 * 60;
             }
             return uint.Parse(v);
         }
@@ -238,15 +252,15 @@ namespace LowLevelDesign
             ulong result;
             if (v.EndsWith("K", StringComparison.OrdinalIgnoreCase))
             {
-                result = ulong.Parse(v.Substring(0, v.Length - 1)) << 10;
+                result = ulong.Parse(v[0..^1]) << 10;
             }
             else if (v.EndsWith("M", StringComparison.OrdinalIgnoreCase))
             {
-                result = ulong.Parse(v.Substring(0, v.Length - 1)) << 20;
+                result = ulong.Parse(v[0..^1]) << 20;
             }
             else if (v.EndsWith("G", StringComparison.OrdinalIgnoreCase))
             {
-                result = ulong.Parse(v.Substring(0, v.Length - 1)) << 30;
+                result = ulong.Parse(v[0..^1]) << 30;
             }
             else
             {
@@ -278,26 +292,24 @@ namespace LowLevelDesign
             }
             try
             {
-                using (var reader = File.OpenText(file))
+                using var reader = File.OpenText(file);
+                int linenum = 1;
+                string? line;
+                while ((line = reader.ReadLine()) != null)
                 {
-                    int linenum = 1;
-                    string line;
-                    while ((line = reader.ReadLine()) != null)
+                    var ind = line.IndexOf("=");
+                    if (ind > 0)
                     {
-                        var ind = line.IndexOf("=");
-                        if (ind > 0)
+                        var key = line[..ind].Trim();
+                        if (!string.IsNullOrEmpty(key))
                         {
-                            var key = line.Substring(0, ind).Trim();
-                            if (!string.IsNullOrEmpty(key))
-                            {
-                                var val = line.Substring(ind + 1, line.Length - ind - 1).Trim();
-                                session.AdditionalEnvironmentVars.Add(key, val);
-                                linenum++;
-                                continue;
-                            }
+                            var val = line.Substring(ind + 1, line.Length - ind - 1).Trim();
+                            session.AdditionalEnvironmentVars.Add(key, val);
+                            linenum++;
+                            continue;
                         }
-                        throw new ArgumentException(string.Format("the environment file contains invalid data (line: {0})", linenum));
                     }
+                    throw new ArgumentException(string.Format("the environment file contains invalid data (line: {0})", linenum));
                 }
             }
             catch (IOException ex)
@@ -309,8 +321,8 @@ namespace LowLevelDesign
         static void ShowHeader()
         {
             Console.WriteLine("Process Governor v{0} - sets limits on your processes",
-                Assembly.GetExecutingAssembly().GetName().Version.ToString());
-            Console.WriteLine("Copyright (C) 2019 Sebastian Solnica (lowleveldesign.org)");
+                Assembly.GetExecutingAssembly()!.GetName()!.Version!.ToString());
+            Console.WriteLine("Copyright (C) 2022 Sebastian Solnica (lowleveldesign.org)");
             Console.WriteLine();
         }
 
@@ -366,6 +378,19 @@ namespace LowLevelDesign
             Console.WriteLine();
         }
 
+        static void ShowPrivileges(List<AccountPrivilege> privileges)
+        {
+            if (privileges.Count > 0)
+            {
+                Console.WriteLine("Requested privileges:");
+                foreach (var privilege in privileges)
+                {
+                    Console.WriteLine("{0}.. {1}", privilege.PrivilegeName, privilege.IsEnabled ? "ENABLED" : "FAILED");
+                }
+                Console.WriteLine();
+            }
+        }
+
         public static ulong CalculateAffinityMaskFromCpuCount(int cpuCount)
         {
             ulong mask = 0;
@@ -380,7 +405,7 @@ namespace LowLevelDesign
         private static bool IsUserAdmin()
         {
             WindowsIdentity identity = WindowsIdentity.GetCurrent();
-            WindowsPrincipal principal = new WindowsPrincipal(identity);
+            WindowsPrincipal principal = new(identity);
             return principal.IsInRole(WindowsBuiltInRole.Administrator);
         }
 
@@ -400,7 +425,7 @@ namespace LowLevelDesign
             }
             // extrace image.exe if path is provided
             appImageExe = Path.GetFileName(appImageExe);
-            var regkey = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options", true);
+            var regkey = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options", true)!;
             // add to image file execution path
             if (oper == RegistryOperation.INSTALL)
             {
@@ -422,9 +447,10 @@ namespace LowLevelDesign
         public static string PrepareDebuggerCommandString(SessionSettings session, string appImageExe)
         {
             var buffer = new StringBuilder();
-            var procgovPath = Assembly.GetAssembly(typeof(ProcessModule)).Location;
+            var procgovPath = Path.GetFullPath(Environment.GetCommandLineArgs()[0]);
             buffer.Append('"').Append(procgovPath).Append('"').Append(" --nogui --debugger");
 
+            // FIXME: add other missing parameters!
             if (session.AdditionalEnvironmentVars.Count > 0)
             {
                 // we will create a file in the procgov folder with the environment variables 
@@ -454,8 +480,8 @@ namespace LowLevelDesign
 
         public static string GetAppEnvironmentFilePath(string appImageExe)
         {
-            var procgovPath = Assembly.GetAssembly(typeof(ProcessModule)).Location;
-            return Path.Combine(Path.GetDirectoryName(procgovPath), appImageExe + ".env");
+            var procgovPath = Path.GetFullPath(Environment.GetCommandLineArgs()[0]);
+            return Path.Combine(Path.GetDirectoryName(procgovPath)!, appImageExe + ".env");
         }
     }
 }

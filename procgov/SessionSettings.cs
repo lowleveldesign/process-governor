@@ -37,6 +37,8 @@ namespace LowLevelDesign
 
         public bool PropagateOnChildProcesses { get; set; }
 
+        public string[] Privileges { get; set; } = new string[0];
+
         public Dictionary<string, string> AdditionalEnvironmentVars => additionalEnvironmentVars;
     }
 }

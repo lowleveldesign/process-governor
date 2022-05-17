@@ -157,3 +157,5 @@ $RECYCLE.BIN/
 .DS_Store
 
 .idea/
+
+launchSettings.json

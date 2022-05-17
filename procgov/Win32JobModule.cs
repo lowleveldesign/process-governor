@@ -6,13 +6,10 @@ using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.Security;
 using Windows.Win32.System.JobObjects;
-using Windows.Win32.System.SystemServices;
-using Windows.Win32.System.Threading;
 using Windows.Win32.Storage.FileSystem;
 using System.ComponentModel;
 using Microsoft.Win32.SafeHandles;
 using static LowLevelDesign.Win32Commons;
-using static Windows.Win32.Constants;
 
 namespace LowLevelDesign
 {
@@ -39,18 +36,20 @@ namespace LowLevelDesign
         }
 
         public static unsafe bool TryOpen(SafeHandle hProcess, uint processId, bool propagateOnChildProcesses,
-            long clockTimeLimitInMilliseconds, out Win32Job job)
+            long clockTimeLimitInMilliseconds, out Win32Job? job)
         {
-            var hJob = PInvoke.OpenJobObject(JOB_OBJECT_QUERY | JOB_OBJECT_SET_ATTRIBUTES | JOB_OBJECT_TERMINATE | (uint)FILE_ACCESS_FLAGS.SYNCHRONIZE,
-                            false, $"Local\\procgov-{processId}");
+            var hJob = PInvoke.OpenJobObject(PInvoke.JOB_OBJECT_QUERY | PInvoke.JOB_OBJECT_SET_ATTRIBUTES |
+                PInvoke.JOB_OBJECT_TERMINATE | (uint)FILE_ACCESS_FLAGS.SYNCHRONIZE, false, $"Local\\procgov-{processId}");
             if (hJob.IsInvalid)
             {
                 job = null;
                 return false;
             }
-            job = new Win32Job(hJob, hProcess, propagateOnChildProcesses, clockTimeLimitInMilliseconds);
-
-            return true;
+            else
+            {
+                job = new Win32Job(hJob, hProcess, propagateOnChildProcesses, clockTimeLimitInMilliseconds);
+                return true;
+            }
         }
 
         public static void SetLimits(Win32Job job, SessionSettings session)
@@ -160,7 +159,8 @@ namespace LowLevelDesign
                 }
 
                 // configure CPU rate limit
-                var limitInfo = new JOBOBJECT_CPU_RATE_CONTROL_INFORMATION {
+                var limitInfo = new JOBOBJECT_CPU_RATE_CONTROL_INFORMATION
+                {
                     ControlFlags = JOB_OBJECT_CPU_RATE_CONTROL.JOB_OBJECT_CPU_RATE_CONTROL_ENABLE |
                         JOB_OBJECT_CPU_RATE_CONTROL.JOB_OBJECT_CPU_RATE_CONTROL_HARD_CAP,
 
@@ -177,8 +177,32 @@ namespace LowLevelDesign
             if (session.NumaNode != 0xffff)
             {
                 CheckWin32Result(PInvoke.GetNumaNodeProcessorMaskEx(session.NumaNode, out var affinity));
+                /*
+                NUMA node processor mask looks a bit strange (at least to me). In my test Hyper-V environment,
+                I set the number of NUMA nodes to four with two cores per node. The results of running the following
+                loop are presented below:
 
-                var nodeAffinityMask = affinity.Mask.ToUInt64();
+                GetNumaHighestNodeNumber(out var highestNode);
+
+                for (ulong i = 0; i <= highestNode; i++) {
+                    Console.WriteLine($"Node: {i:X}");
+                    GetNumaNodeProcessorMaskEx((ushort)i, out var affinity);
+                    $"Mask: {affinity.Mask:X}".Dump();
+                }
+
+                Results:
+
+                Node: 0
+                Mask: 3
+                Node: 1
+                Mask: 12
+                Node: 2
+                Mask: 48
+                Node: 3
+                Mask: 192
+                */
+
+                var nodeAffinityMask = Convert.ToUInt64(affinity.Mask);
                 if (session.CpuAffinityMask != 0)
                 {
                     // When CPU affinity is set, we can't simply use 
@@ -209,7 +233,8 @@ namespace LowLevelDesign
         {
             if (session.MaxBandwidth > 0)
             {
-                var limitInfo = new JOBOBJECT_NET_RATE_CONTROL_INFORMATION {
+                var limitInfo = new JOBOBJECT_NET_RATE_CONTROL_INFORMATION
+                {
                     ControlFlags = JOB_OBJECT_NET_RATE_CONTROL_FLAGS.JOB_OBJECT_NET_RATE_CONTROL_ENABLE |
                                     JOB_OBJECT_NET_RATE_CONTROL_FLAGS.JOB_OBJECT_NET_RATE_CONTROL_MAX_BANDWIDTH,
                     MaxBandwidth = session.MaxBandwidth,
@@ -229,11 +254,11 @@ namespace LowLevelDesign
             {
                 switch (PInvoke.WaitForSingleObject(job.JobHandle, 200 /* ms */))
                 {
-                    case WAIT_RETURN_CAUSE.WAIT_OBJECT_0:
+                    case PInvoke.WAIT_OBJECT_0:
                         logger.TraceEvent(TraceEventType.Information, 0, "End of job time limit passed - terminating.");
                         shouldTerminate = true;
                         break;
-                    case WAIT_RETURN_CAUSE.WAIT_FAILED:
+                    case (uint)WIN32_ERROR.WAIT_FAILED:
                         throw new Win32Exception();
                     default:
                         JOBOBJECT_BASIC_ACCOUNTING_INFORMATION jobBasicAcctInfo;

@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.1.32421.90
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "procgov", "procgov\procgov.csproj", "{75BC9946-3E89-46B3-9186-CA3682F8E90F}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "procgov-tests", "procgov-tests\procgov-tests.csproj", "{906FB81F-E768-4F43-8EA8-E185ECF20A22}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{75BC9946-3E89-46B3-9186-CA3682F8E90F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{75BC9946-3E89-46B3-9186-CA3682F8E90F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{75BC9946-3E89-46B3-9186-CA3682F8E90F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{75BC9946-3E89-46B3-9186-CA3682F8E90F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{906FB81F-E768-4F43-8EA8-E185ECF20A22}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{906FB81F-E768-4F43-8EA8-E185ECF20A22}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{906FB81F-E768-4F43-8EA8-E185ECF20A22}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{906FB81F-E768-4F43-8EA8-E185ECF20A22}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {D28B0F6D-D5B7-4346-A95C-882E389BCE3F}
+	EndGlobalSection
+EndGlobal

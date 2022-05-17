@@ -14,28 +14,29 @@ jobs:
     steps:
     - uses: actions/checkout@v2
 
-    - name: Setup nuget
-      uses: nuget/setup-nuget@v1
+    - uses: actions/setup-dotnet@v1
+      with:
+        dotnet-version: '6.0.x' # SDK Version to use.
 
-    - name: Restore packages
-      run: nuget restore ProcessGovernor.sln
+    - run: dotnet test -c release -r win-x86 -f net6.0-windows
+      working-directory: ./procgov-tests
 
-    - name: Setup MSBuild.exe
-      uses: microsoft/setup-msbuild@v1.0.2
+    - run: dotnet publish -c release -r win-x86 --self-contained -f net6.0-windows
+      working-directory: ./procgov
 
-    - name: Build Release using MSBuild
-      run: msbuild ProcessGovernor.sln -m /p:Configuration=Release /p:Platform=x86
+    - run: dotnet test -c release -r win-x64 -f net6.0-windows
+      working-directory: ./procgov-tests
 
-    - name: Build Release using MSBuild
-      run: msbuild ProcessGovernor.sln -m /p:Configuration=Release /p:Platform=x64
+    - run: dotnet publish -c release -r win-x64 --self-contained -f net6.0-windows
+      working-directory: ./procgov
 
     - name: Copy artifacts
       run: |
         New-Item -Type Directory -Path artifacts
-        Copy-Item -Path "ProcessGovernor\bin\x86\Release\procgov.exe" -Destination "artifacts\procgov32.exe"
-        Copy-Item -Path "ProcessGovernor\bin\x86\Release\procgov.pdb" -Destination "artifacts\procgov32.pdb"
-        Copy-Item -Path "ProcessGovernor\bin\x64\Release\procgov.exe" -Destination "artifacts\procgov64.exe"
-        Copy-Item -Path "ProcessGovernor\bin\x64\Release\procgov.pdb" -Destination "artifacts\procgov64.pdb"
+        Copy-Item -Path "procgov/bin/release/net6.0-windows/win-x86/publish/procgov.exe" -Destination "artifacts/procgov32.exe"
+        Copy-Item -Path "procgov/bin/release/net6.0-windows/win-x86/publish/procgov.pdb" -Destination "artifacts/procgov32.pdb"
+        Copy-Item -Path "procgov/bin/release/net6.0-windows/win-x64/publish/procgov.exe" -Destination "artifacts/procgov64.exe"
+        Copy-Item -Path "procgov/bin/release/net6.0-windows/win-x64/publish/procgov.pdb" -Destination "artifacts/procgov64.pdb"
 
     - uses: actions/upload-artifact@v2
       with:

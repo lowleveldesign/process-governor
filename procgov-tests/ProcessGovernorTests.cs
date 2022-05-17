@@ -96,7 +96,7 @@ namespace LowLevelDesign
                 Assert.AreEqual("TEST=TESTVAL\r\nTEST2=TESTVAL2\r\n", txt);
 
                 Assert.AreEqual(string.Format("\"{0}\" --nogui --debugger --env=\"{1}\" --cpu=0x2 --maxmem=1048576",
-                    Assembly.GetAssembly(typeof(ProcessModule)).Location, envFilePath), debugger);
+                    Environment.GetCommandLineArgs()[0], envFilePath), debugger);
             } finally {
                 File.Delete(envFilePath);
             }

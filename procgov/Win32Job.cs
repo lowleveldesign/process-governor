@@ -8,7 +8,7 @@ namespace LowLevelDesign
     {
         private readonly SafeHandle hJob, hProcess;
         private readonly bool propagateOnChildProcesses;
-        private readonly Stopwatch stopWatch;
+        private readonly Stopwatch? stopWatch;
         private readonly long clockTimeLimitInMilliseconds;
 
         public Win32Job(SafeHandle hJob, SafeHandle hProcess, bool propagateOnChildProcesses,

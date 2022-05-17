@@ -1,5 +1,3 @@
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
 using Windows.Win32;
@@ -9,13 +7,15 @@ using static LowLevelDesign.Win32Commons;
 
 namespace LowLevelDesign
 {
-    public static class ProcessModule
+    internal static class ProcessModule
     {
         private static readonly TraceSource logger = Program.Logger;
 
-        public static Win32Job AttachToProcess(uint pid, SessionSettings session)
+        public static (Win32Job, List<AccountPrivilege>) AttachToProcess(uint pid, SessionSettings session)
         {
-            using (new DebugPrivilege(logger))
+            var currentProcessHandle = Process.GetCurrentProcess().SafeHandle;
+            var dbgpriv = AccountPrivilegeModule.EnablePrivileges(currentProcessHandle, new[] { "SeDebugPrivilege" });
+            try
             {
                 var hProcess = CheckWin32Result(PInvoke.OpenProcess_SafeHandle(
                     PROCESS_ACCESS_RIGHTS.PROCESS_QUERY_INFORMATION |
@@ -29,13 +29,20 @@ namespace LowLevelDesign
                     job = Win32JobModule.CreateAndAssignToProcess(hProcess, pid,
                             session.PropagateOnChildProcesses, session.ClockTimeLimitInMilliseconds);
                 }
+                Debug.Assert(job != null);
                 Win32JobModule.SetLimits(job, session);
 
-                return job;
+                var privs = AccountPrivilegeModule.EnablePrivileges(hProcess, session.Privileges );
+
+                return (job, privs);
+            }
+            finally
+            {
+                AccountPrivilegeModule.RestorePrivileges(currentProcessHandle, dbgpriv);
             }
         }
 
-        public static unsafe Win32Job StartProcess(IList<string> procargs, SessionSettings session)
+        public static unsafe (Win32Job, List<AccountPrivilege>) StartProcess(IList<string> procargs, SessionSettings session)
         {
             var pi = new PROCESS_INFORMATION();
             var si = new STARTUPINFOW();
@@ -46,7 +53,7 @@ namespace LowLevelDesign
                 processCreationFlags |= PROCESS_CREATION_FLAGS.CREATE_NEW_CONSOLE;
             }
 
-            var args = string.Join(" ", procargs);
+            var args = string.Join(" ", procargs.Select((string s) => s.Contains(' ') ? "\"" + s + "\"" : s));
             var env = GetEnvironmentString(session.AdditionalEnvironmentVars);
             fixed (char* pargs = args)
             {
@@ -64,10 +71,12 @@ namespace LowLevelDesign
                             session.PropagateOnChildProcesses, session.ClockTimeLimitInMilliseconds);
                 Win32JobModule.SetLimits(job, session);
 
+                var privs = AccountPrivilegeModule.EnablePrivileges(hProcess, session.Privileges);
+
                 // resume process main thread
                 CheckWin32Result(PInvoke.ResumeThread(pi.hThread));
 
-                return job;
+                return (job, privs);
             }
             catch
             {
@@ -81,7 +90,7 @@ namespace LowLevelDesign
             }
         }
 
-        public static unsafe Win32Job StartProcessUnderDebuggerAndDetach(IList<string> procargs, SessionSettings session)
+        public static unsafe (Win32Job, List<AccountPrivilege>) StartProcessUnderDebuggerAndDetach(IList<string> procargs, SessionSettings session)
         {
             var pi = new PROCESS_INFORMATION();
             var si = new STARTUPINFOW();
@@ -110,22 +119,24 @@ namespace LowLevelDesign
                             session.PropagateOnChildProcesses, session.ClockTimeLimitInMilliseconds);
             Win32JobModule.SetLimits(job, session);
 
+            var privs = AccountPrivilegeModule.EnablePrivileges(hProcess, session.Privileges);
+
             // resume process main thread by detaching from the debuggee
             CheckWin32Result(PInvoke.DebugActiveProcessStop(pi.dwProcessId));
             // and we can close the thread handle
             PInvoke.CloseHandle(pi.hThread);
 
-            return job;
+            return (job, privs);
         }
 
-        private static string GetEnvironmentString(IDictionary<string, string> additionalEnvironmentVars)
+        private static string? GetEnvironmentString(IDictionary<string, string> additionalEnvironmentVars)
         {
             if (additionalEnvironmentVars.Count == 0)
             {
                 return null;
             }
 
-            StringBuilder envEntries = new StringBuilder();
+            StringBuilder envEntries = new();
             foreach (string env in Environment.GetEnvironmentVariables().Keys)
             {
                 if (additionalEnvironmentVars.ContainsKey(env))
@@ -133,17 +144,17 @@ namespace LowLevelDesign
                     continue; // overwrite existing env
                 }
 
-                envEntries.Append(env).Append("=").Append(
-                    Environment.GetEnvironmentVariable(env)).Append("\0");
+                envEntries.Append(env).Append('=').Append(
+                    Environment.GetEnvironmentVariable(env)).Append('\0');
             }
 
             foreach (var kv in additionalEnvironmentVars)
             {
-                envEntries.Append(kv.Key).Append("=").Append(
-                    kv.Value).Append("\0");
+                envEntries.Append(kv.Key).Append('=').Append(
+                    kv.Value).Append('\0');
             }
 
-            envEntries.Append("\0");
+            envEntries.Append('\0');
 
             return envEntries.ToString();
         }
