@@ -3,12 +3,13 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
 using Windows.Win32;
+using Windows.Win32.Foundation;
 using Windows.Win32.Security;
 using static LowLevelDesign.Win32Commons;
 
 namespace LowLevelDesign
 {
-    internal record class AccountPrivilege(string PrivilegeName, bool IsEnabled, TOKEN_PRIVILEGES ReplacedPrivilege);
+    internal record class AccountPrivilege(string PrivilegeName, string Result, TOKEN_PRIVILEGES ReplacedPrivilege);
 
     internal unsafe static class AccountPrivilegeModule
     {
@@ -41,13 +42,13 @@ namespace LowLevelDesign
                     if (PInvoke.AdjustTokenPrivileges(tokenHandle, false, privileges, (uint)Marshal.SizeOf(previousPrivileges), &previousPrivileges, &length))
                     {
                         Debug.Assert(length == Marshal.SizeOf(previousPrivileges));
-                        return new AccountPrivilege(privilegeName, true, previousPrivileges);
+                        var result = Marshal.GetLastWin32Error() == (int)WIN32_ERROR.NO_ERROR ? "ENABLED" : "FAILED (privilege not available)";
+                        return new AccountPrivilege(privilegeName, result, previousPrivileges);
                     }
                     else
                     {
-                        logger.TraceEvent(TraceEventType.Error, 0, "Error while enable the {0} privilege: 0x{1:x}",
-                            privilegeName, Marshal.GetLastWin32Error());
-                        return new AccountPrivilege(privilegeName, false, new TOKEN_PRIVILEGES { PrivilegeCount = 0 });
+                        var result = $"FAILED (error 0x{Marshal.GetLastWin32Error():x}";
+                        return new AccountPrivilege(privilegeName, result, new TOKEN_PRIVILEGES { PrivilegeCount = 0 });
                     }
                 }).ToList();
             }
@@ -62,7 +63,7 @@ namespace LowLevelDesign
             CheckWin32Result(PInvoke.OpenProcessToken(processHandle, TOKEN_ACCESS_MASK.TOKEN_ADJUST_PRIVILEGES, out var tokenHandle));
             try
             {
-                foreach (var priv in privileges.Where(priv => priv.IsEnabled))
+                foreach (var priv in privileges.Where(priv => priv.Result == "ENABLED"))
                 {
                     if (!PInvoke.AdjustTokenPrivileges(tokenHandle, false, priv.ReplacedPrivilege, 0, null, null))
                     {

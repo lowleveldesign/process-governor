@@ -385,7 +385,7 @@ namespace LowLevelDesign
                 Console.WriteLine("Requested privileges:");
                 foreach (var privilege in privileges)
                 {
-                    Console.WriteLine("{0}.. {1}", privilege.PrivilegeName, privilege.IsEnabled ? "ENABLED" : "FAILED");
+                    Console.WriteLine("{0}.. {1}", privilege.PrivilegeName, privilege.Result);
                 }
                 Console.WriteLine();
             }
