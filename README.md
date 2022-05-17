@@ -20,9 +20,9 @@ Usage: procgov [OPTIONS] args
 
 Options:
   -m, --maxmem=VALUE         Max committed memory usage in bytes (accepted
-                               suffixes: K, M or G).
+                               suffixes: K, M, or G).
       --maxjobmem=VALUE      Max committed memory usage for all the processes
-                               in the job (accepted suffixes: K, M, or G). 
+                               in the job (accepted suffixes: K, M, or G).
       --maxws=VALUE          Max working set size in bytes (accepted
                                suffixes: K, M, or G). Must be set with minws.
       --minws=VALUE          Min working set size in bytes (accepted
@@ -38,8 +38,8 @@ Options:
                                this node.
   -e, --cpurate=VALUE        The maximum CPU rate in % for the process. If
                                you also set the affinity, the rate will apply
-                               only to the selected CPU cores. (Windows 8.1+) 
-      --bandwidth=VALUE      The maximum bandwidth (in bytes) for the process
+                               only to the selected CPU cores. (Windows 8.1+)
+  -b, --bandwidth=VALUE      The maximum bandwidth (in bytes) for the process
                                outgoing network traffic (accepted suffixes: K,
                                M, or G). (Windows 10+)
   -r, --recursive            Apply limits to child processes too (will wait
@@ -66,10 +66,14 @@ Options:
                                exceed the specified value. Add suffix to define
                                the time unit. Valid suffixes are: ms, s, m, h.
       --uninstall            Uninstall procgov for a specific process.
+      --enable-privileges=VALUE
+                             Enables the specified privileges in the remote
+                               process. You may specify multiple privileges by
+                               splitting them with commas, for example,
+                               'SeDebugPrivilege,SeLockMemoryPrivilege'
       --debugger             Internal - do not use.
   -q, --quiet                Do not show procgov messages.
-      --nowait               Does not wait for the target process(es) to
-                             exit.
+      --nowait               Does not wait for the target process(es) to exit.
   -v, --verbose              Show verbose messages in the console.
   -h, --help                 Show this message and exit
   -?                         Show this message and exit
@@ -147,6 +151,16 @@ With the **--env** switch you may provide a file with additional environment var
 COR_ENABLE_PROFILING=0x01
 COR_PROFILER={32E2F4DA-1BEA-47ea-88F9-C5DAF691C94A}
 ```
+
+## Enable process privileges
+
+Starting from version 2.10, you can enable privileges in the target process with the **--enable-privileges** switch. You may specify multiple privileges, separated by a comma, for example:
+
+```
+procgov --enable-privileges=SeDebugPrivilege,SeShutdownPrivilege notepad
+```
+
+Keep in mind that in Windows, you can't add new privileges to the process token. You may only enable existing ones. You may check the available process privileges in Process Hacker or Process Explorer. Check the documentation for a given privilege to learn how to make it available for a given user (for example, you may need to update group policies).
 
 ## Contributions
 
