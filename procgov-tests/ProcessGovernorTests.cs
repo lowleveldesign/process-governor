@@ -79,13 +79,25 @@ namespace LowLevelDesign
         {
             var session = new SessionSettings() {
                 CpuAffinityMask = 0x2,
-                MaxProcessMemory = 1024 * 1024
+                MaxProcessMemory = 1024 * 1024,
+                MaxJobMemory = 2048 * 1024,
+                ProcessUserTimeLimitInMilliseconds = 500,
+                JobUserTimeLimitInMilliseconds = 1000,
+                ClockTimeLimitInMilliseconds = 2000,
+                CpuMaxRate = 90,
+                MaxBandwidth = 100,
+                MinWorkingSetSize = 1024,
+                MaxWorkingSetSize = 1024 * 1024,
+                NumaNode = 1,
+                Privileges = new[] { "SeDebugPrivilege", "SeShutdownPrivilege" },
+                PropagateOnChildProcesses = true,
+                SpawnNewConsoleWindow = true
             };
             session.AdditionalEnvironmentVars.Add("TEST", "TESTVAL");
             session.AdditionalEnvironmentVars.Add("TEST2", "TESTVAL2");
 
             var appImageExe = Path.GetFileName(@"C:\temp\test.exe");
-            var debugger = Program.PrepareDebuggerCommandString(session, appImageExe);
+            var debugger = Program.PrepareDebuggerCommandString(session, appImageExe, true);
 
             var envFilePath = Program.GetAppEnvironmentFilePath(appImageExe);
             Assert.True(File.Exists(envFilePath));
@@ -95,8 +107,12 @@ namespace LowLevelDesign
                 var txt = File.ReadAllText(envFilePath);
                 Assert.AreEqual("TEST=TESTVAL\r\nTEST2=TESTVAL2\r\n", txt);
 
-                Assert.AreEqual(string.Format("\"{0}\" --nogui --debugger --env=\"{1}\" --cpu=0x2 --maxmem=1048576",
-                    Environment.GetCommandLineArgs()[0], envFilePath), debugger);
+                var expectedCmdLine =
+                    $"\"{Environment.GetCommandLineArgs()[0]}\" --nogui --debugger --env=\"{envFilePath}\" --cpu=0x2 --maxmem=1048576 " +
+                    "--maxjobmem=2097152 --maxws=1048576 --minws=1024 --node=1 --cpurate=90 --bandwidth=100 --recursive " +
+                    "--timeout=2000 --process-utime=500 --job-utime=1000 --enable-privileges=SeDebugPrivilege,SeShutdownPrivilege --nowait";
+
+                Assert.AreEqual(expectedCmdLine, debugger);
             } finally {
                 File.Delete(envFilePath);
             }

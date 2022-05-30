@@ -79,7 +79,7 @@ Options:
   -?                         Show this message and exit
 ```
 
-You may set limits on a newly created process or on an already running one. To **attach to a process** use the **-p|--pid** switch, eg. `procgov --maxmem 40M --pid 1234`. To **start a new process** with the limits applied, just pass the process image path and its arguments as procgov arguments, eg. `procgov --maxmem 40M c:\temp\test.exe arg1 arg2"`.
+You may set limits on a newly created process or on an already running one. To **attach to a process** use the **-p|--pid** switch, eg. `procgov32 --maxmem 40M --pid 1234`. To **start a new process** with the limits applied, just pass the process image path as a procgov argument, eg. `procgov32 --maxmem 40M c:\temp\test.exe`. If you need to **pass any parameters to the target process**, it's best to use `--` to separate procgov parameters from the target process ones, for example, `procgov32 -m 100M -- test.exe -arg1 -arg2=val2 arg3`. 
 
 Starting from version 2.8, it is possible to **update once set limits**. Simply run procgov providing new limits and the target process ID. Procgov will update only the specified limits. Let's have a look at an example to understand this behavior better:
 
@@ -101,7 +101,7 @@ PS> procgov64 -m 120M -p 1234
 #  - max committed memory: 120MB
 ```
 
-Finally, you may **run procgov always when a given process starts**. When you use the **--install** switch Process Governor will add a special key to the **Image File Execution Options** in the registry, so that it will always start before your chosen process. To install Process Governor for a test.exe process, use the following command: `procgov --install --maxmem 40M test.exe`. You may later remove this installation by using the **--uninstall** switch, eg. `procgov --uninstall test.exe`.
+Finally, you may **run procgov always when a given process starts**. When you use the **--install** switch Process Governor will add a special key to the **Image File Execution Options** in the registry, so that it will always start before your chosen process. To install Process Governor for a test.exe process, use the following command: `procgov64 --install --maxmem 40M test.exe`. You may later remove this installation by using the **--uninstall** switch, eg. `procgov64 --uninstall test.exe`.
 
 ## Limit memory of a process
 
@@ -114,7 +114,7 @@ With the **--maxws** and **--minws** switches you may control the maximum and mi
 With the **--cpu** switch you may control on which cores your application will run. If you provide the CPU core number as **a decimal value**, your application will be allowed to use the specified number of cores. If you provide the CPU core number as **a hex value (with 0x prefix)**, this number will be treated as an affinity mask - where each bit represents a CPU core (starting from the least significant bit). Let's have a look at two example usages on a CPU intensive application.  In a first one we set the CPU core limit to two cores:
 
 ```
-> procgov --cpu=2 TestLimit.exe
+> procgov64 --cpu=2 TestLimit.exe
 ```
 
 A CPU usage graph on my machine looks as follows:
@@ -124,7 +124,7 @@ A CPU usage graph on my machine looks as follows:
 In a second we set the CPU affinity mask (with the hex notation):
 
 ```
-> procgov --cpu=0x2 TestLimit.exe
+> procgov64 --cpu=0x2 TestLimit.exe
 ```
 
 A CPU graph in this case looks as follows (notice only the second core is used):
@@ -157,7 +157,7 @@ COR_PROFILER={32E2F4DA-1BEA-47ea-88F9-C5DAF691C94A}
 Starting from version 2.10, you can enable privileges in the target process with the **--enable-privileges** switch. You may specify multiple privileges, separated by a comma, for example:
 
 ```
-procgov --enable-privileges=SeDebugPrivilege,SeShutdownPrivilege notepad
+procgov64 --enable-privileges=SeDebugPrivilege,SeShutdownPrivilege notepad
 ```
 
 Keep in mind that in Windows, you can't add new privileges to the process token. You may only enable existing ones. You may check the available process privileges in Process Hacker or Process Explorer. Check the documentation for a given privilege to learn how to make it available for a given user (for example, you may need to update group policies).

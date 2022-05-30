@@ -140,7 +140,7 @@ namespace LowLevelDesign
                     Console.Error.WriteLine("ERROR: please provide an image name for a process you would like to intercept.");
                     return 1;
                 }
-                SetupRegistryForProcessGovernor(session, procargs[0], registryOperation);
+                SetupRegistryForProcessGovernor(session, procargs[0], registryOperation, nowait);
                 return 0;
             }
 
@@ -335,13 +335,13 @@ namespace LowLevelDesign
             Console.WriteLine();
             Console.WriteLine("EXAMPLES:");
             Console.WriteLine("Limit memory of a test.exe process to 200MB:");
-            Console.WriteLine("> procgov --maxmem 200M test.exe");
+            Console.WriteLine("> procgov64 --maxmem 200M -- test.exe");
             Console.WriteLine();
             Console.WriteLine("Limit CPU usage of a test.exe process to first three CPU cores:");
-            Console.WriteLine("> procgov --cpu 3 test.exe");
+            Console.WriteLine("> procgov64 --cpu 3 -- test.exe -arg1 -arg2=val2");
             Console.WriteLine();
             Console.WriteLine("Always run a test.exe process only on the first three CPU cores:");
-            Console.WriteLine("> procgov --install --cpu 3 test.exe");
+            Console.WriteLine("> procgov64 --install --cpu 3 test.exe");
             Console.WriteLine();
         }
 
@@ -416,7 +416,7 @@ namespace LowLevelDesign
             NONE
         }
 
-        public static void SetupRegistryForProcessGovernor(SessionSettings session, string appImageExe, RegistryOperation oper)
+        public static void SetupRegistryForProcessGovernor(SessionSettings session, string appImageExe, RegistryOperation oper, bool nowait)
         {
             if (!IsUserAdmin())
             {
@@ -430,7 +430,7 @@ namespace LowLevelDesign
             if (oper == RegistryOperation.INSTALL)
             {
                 regkey = regkey.CreateSubKey(appImageExe);
-                regkey.SetValue("Debugger", PrepareDebuggerCommandString(session, appImageExe));
+                regkey.SetValue("Debugger", PrepareDebuggerCommandString(session, appImageExe, nowait));
             }
             else if (oper == RegistryOperation.UNINSTALL)
             {
@@ -444,13 +444,12 @@ namespace LowLevelDesign
             }
         }
 
-        public static string PrepareDebuggerCommandString(SessionSettings session, string appImageExe)
+        public static string PrepareDebuggerCommandString(SessionSettings session, string appImageExe, bool nowait)
         {
             var buffer = new StringBuilder();
             var procgovPath = Path.GetFullPath(Environment.GetCommandLineArgs()[0]);
             buffer.Append('"').Append(procgovPath).Append('"').Append(" --nogui --debugger");
 
-            // FIXME: add other missing parameters!
             if (session.AdditionalEnvironmentVars.Count > 0)
             {
                 // we will create a file in the procgov folder with the environment variables 
@@ -464,15 +463,61 @@ namespace LowLevelDesign
                 }
                 buffer.AppendFormat(" --env=\"{0}\"", appEnvironmentFilePath);
             }
-
             if (session.CpuAffinityMask != 0)
             {
                 buffer.AppendFormat(" --cpu=0x{0:X}", session.CpuAffinityMask);
             }
-
             if (session.MaxProcessMemory > 0)
             {
                 buffer.AppendFormat(" --maxmem={0}", session.MaxProcessMemory);
+            }
+            if (session.MaxJobMemory > 0)
+            {
+                buffer.AppendFormat(" --maxjobmem={0}", session.MaxJobMemory);
+            }
+            if (session.MaxWorkingSetSize > 0)
+            {
+                buffer.AppendFormat(" --maxws={0}", session.MaxWorkingSetSize);
+            }
+            if (session.MinWorkingSetSize > 0)
+            {
+                buffer.AppendFormat(" --minws={0}", session.MinWorkingSetSize);
+            }
+            if (session.NumaNode != 0xffff)
+            {
+                buffer.AppendFormat(" --node={0}", session.NumaNode);
+            }
+            if (session.CpuMaxRate > 0)
+            {
+                buffer.AppendFormat(" --cpurate={0}", session.CpuMaxRate);
+            }
+            if (session.MaxBandwidth > 0)
+            {
+                buffer.AppendFormat(" --bandwidth={0}", session.MaxBandwidth);
+            }
+            if (session.PropagateOnChildProcesses)
+            {
+                buffer.AppendFormat(" --recursive");
+            }
+            if (session.ClockTimeLimitInMilliseconds > 0)
+            {
+                buffer.AppendFormat(" --timeout={0}", session.ClockTimeLimitInMilliseconds);
+            }
+            if (session.ProcessUserTimeLimitInMilliseconds > 0)
+            {
+                buffer.AppendFormat(" --process-utime={0}", session.ProcessUserTimeLimitInMilliseconds);
+            }
+            if (session.JobUserTimeLimitInMilliseconds > 0)
+            {
+                buffer.AppendFormat(" --job-utime={0}", session.JobUserTimeLimitInMilliseconds);
+            }
+            if (session.Privileges.Length > 0)
+            {
+                buffer.AppendFormat(" --enable-privileges={0}", string.Join(',', session.Privileges));
+            }
+            if (nowait)
+            {
+                buffer.AppendFormat(" --nowait");
             }
 
             return buffer.ToString();
