@@ -16,7 +16,7 @@ choco install procgov
 The available options are:
 
 ```
-Usage: procgov [OPTIONS] args
+Usage: procgov64 [OPTIONS] args
 
 Options:
   -m, --maxmem=VALUE         Max committed memory usage in bytes (accepted
