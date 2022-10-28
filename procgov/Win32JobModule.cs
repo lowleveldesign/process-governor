@@ -10,6 +10,10 @@ using Windows.Win32.Storage.FileSystem;
 using System.ComponentModel;
 using Microsoft.Win32.SafeHandles;
 using static LowLevelDesign.Win32Commons;
+using Windows.Win32.System.SystemInformation;
+using System.Collections;
+using System.Net.Http.Headers;
+using System.ComponentModel.DataAnnotations;
 
 namespace LowLevelDesign
 {
@@ -63,16 +67,24 @@ namespace LowLevelDesign
                 }
             }
 
-            CheckWin32Result(PInvoke.GetProcessAffinityMask(job.ProcessHandle, out _, out var aff));
-            var systemAffinityMask = (ulong)aff;
+            CheckWin32Result(PInvoke.GetProcessAffinityMask(job.ProcessHandle, out _, out var sysaff));
+            if (sysaff == 0 && (session.CpuAffinityMask != 0 || session.NumaNode != 0xffff))
+            {
+                logger.TraceEvent(TraceEventType.Error, 0, "The target process belongs to more than 1 processor group. " +
+                    "Setting affinity on such processes is currently unsupported.");
+                session.CpuAffinityMask = 0;
+                session.NumaNode = 0xffff;
+            }
 
-            SetBasicLimits(job, session, systemAffinityMask);
-            SetMaxCpuRate(job, session, systemAffinityMask);
-            SetNumaAffinity(job, session, systemAffinityMask);
+            var systemOrProcessorGroupAffinityMask = (ulong)sysaff;
+
+            SetBasicLimits(job, session);
+            SetMaxCpuRate(job, session, systemOrProcessorGroupAffinityMask);
+            SetNumaAffinity(job, session, systemOrProcessorGroupAffinityMask);
             SetMaxBandwith(job, session);
         }
 
-        private static unsafe void SetBasicLimits(Win32Job job, SessionSettings session, ulong systemAffinityMask)
+        private static unsafe void SetBasicLimits(Win32Job job, SessionSettings session)
         {
             var limitInfo = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
             var size = (uint)Marshal.SizeOf(limitInfo);
@@ -81,7 +93,9 @@ namespace LowLevelDesign
                 JOBOBJECTINFOCLASS.JobObjectExtendedLimitInformation, &limitInfo, size, &length));
             Debug.Assert(length == size);
 
-            JOB_OBJECT_LIMIT flags = 0;
+            // Process affinity is updated in the SetNumaAffinity method - updating through basic limits
+            // could fail if Numa node was previously set (issue #46)
+            JOB_OBJECT_LIMIT flags = limitInfo.BasicLimitInformation.LimitFlags & ~JOB_OBJECT_LIMIT.JOB_OBJECT_LIMIT_AFFINITY;
             if (!session.PropagateOnChildProcesses)
             {
                 flags |= JOB_OBJECT_LIMIT.JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK;
@@ -118,42 +132,28 @@ namespace LowLevelDesign
                 limitInfo.BasicLimitInformation.PerJobUserTimeLimit = 10_000 * session.JobUserTimeLimitInMilliseconds; // in 100ns
             }
 
-            // only if NUMA node is not provided we will set the CPU affinity,
-            // otherwise we will set the affinity on a selected NUMA node
-            if (session.CpuAffinityMask != 0 && session.NumaNode == 0xffff)
-            {
-                flags |= JOB_OBJECT_LIMIT.JOB_OBJECT_LIMIT_AFFINITY;
-                // NOTE: this could result in an overflow on 32-bit apps, but I can't
-                // think of a nice way of handling it here
-                limitInfo.BasicLimitInformation.Affinity = new UIntPtr(systemAffinityMask & session.CpuAffinityMask);
-            }
-
             if (flags != 0)
             {
-                limitInfo.BasicLimitInformation.LimitFlags = flags | limitInfo.BasicLimitInformation.LimitFlags;
+                limitInfo.BasicLimitInformation.LimitFlags = flags;
                 CheckWin32Result(PInvoke.SetInformationJobObject(job.JobHandle,
                     JOBOBJECTINFOCLASS.JobObjectExtendedLimitInformation, &limitInfo, size));
             }
         }
 
-        private static unsafe void SetMaxCpuRate(Win32Job job, SessionSettings session, ulong systemAffinityMask)
+        private static unsafe void SetMaxCpuRate(Win32Job job, SessionSettings session, ulong affinityMask)
         {
             if (session.CpuMaxRate > 0)
             {
                 // Set CpuRate to a percentage times 100. For example, to let the job use 20% of the CPU, 
-                // set CpuRate to 20 times 100, or 2,000.
+                // set CpuRate to 2,000.
                 uint finalCpuRate = session.CpuMaxRate * 100;
 
                 // CPU rate is set for the whole system so includes all the logical CPUs. When 
                 // we have the CPU affinity set, we will divide the rate accordingly.
                 if (session.CpuAffinityMask != 0)
                 {
-                    ulong affinity = systemAffinityMask & session.CpuAffinityMask;
-                    uint numberOfSelectedCores = 0;
-                    for (int i = 0; i < sizeof(ulong) * 8; i++)
-                    {
-                        numberOfSelectedCores += (affinity & (1UL << i)) == 0 ? 0u : 1u;
-                    }
+                    ulong affinity = affinityMask & session.CpuAffinityMask;
+                    var numberOfSelectedCores = (uint)Enumerable.Range(0, 8 * sizeof(ulong)).Count(i => (affinity & (1UL << i)) != 0);
                     Debug.Assert(numberOfSelectedCores < Environment.ProcessorCount);
                     finalCpuRate /= ((uint)Environment.ProcessorCount / numberOfSelectedCores);
                 }
@@ -172,60 +172,90 @@ namespace LowLevelDesign
             }
         }
 
-        static unsafe void SetNumaAffinity(Win32Job job, SessionSettings session, ulong systemAffinityMask)
+        static unsafe void SetNumaAffinity(Win32Job job, SessionSettings session, ulong systemOrProcessorGroupAffinityMask)
         {
-            if (session.NumaNode != 0xffff)
+            if (session.NumaNode != 0xffff || session.CpuAffinityMask != 0)
             {
-                CheckWin32Result(PInvoke.GetNumaNodeProcessorMaskEx(session.NumaNode, out var affinity));
-                /*
-                NUMA node processor mask looks a bit strange (at least to me). In my test Hyper-V environment,
-                I set the number of NUMA nodes to four with two cores per node. The results of running the following
-                loop are presented below:
-
-                GetNumaHighestNodeNumber(out var highestNode);
-
-                for (ulong i = 0; i <= highestNode; i++) {
-                    Console.WriteLine($"Node: {i:X}");
-                    GetNumaNodeProcessorMaskEx((ushort)i, out var affinity);
-                    $"Mask: {affinity.Mask:X}".Dump();
-                }
-
-                Results:
-
-                Node: 0
-                Mask: 3
-                Node: 1
-                Mask: 12
-                Node: 2
-                Mask: 48
-                Node: 3
-                Mask: 192
-                */
-
-                var nodeAffinityMask = Convert.ToUInt64(affinity.Mask);
-                if (session.CpuAffinityMask != 0)
+                var calculateGroupAffinity = () =>
                 {
-                    // When CPU affinity is set, we can't simply use 
-                    // NUMA affinity, but rather need to apply the CPU affinity
-                    // settings to the select NUMA node.
-                    var firstNonZeroBitPosition = 0;
-                    while ((nodeAffinityMask & (1UL << firstNonZeroBitPosition)) == 0)
+
+                    if (session.NumaNode != 0xffff)
                     {
-                        firstNonZeroBitPosition++;
-                    }
-                    session.CpuAffinityMask <<= firstNonZeroBitPosition & 0x3f;
-                }
-                else
-                {
-                    session.CpuAffinityMask = nodeAffinityMask;
-                }
-                // NOTE: this could result in an overflow on 32-bit apps, but I can't
-                // think of a nice way of handling it here
-                affinity.Mask = new UIntPtr(session.CpuAffinityMask & systemAffinityMask);
+                        CheckWin32Result(PInvoke.GetNumaNodeProcessorMaskEx(session.NumaNode, out var groupAffinity));
+                        /*
+                        In my test Hyper-V environment, I set the number of NUMA nodes to four with two cores per node.
+                        The results of running the following loop are presented below:
 
-                var size = (uint)Marshal.SizeOf(affinity);
+                        GetNumaHighestNodeNumber(out var highestNode);
+
+                        for (ulong i = 0; i <= highestNode; i++) {
+                            Console.WriteLine($"Node: {i:X}");
+                            GetNumaNodeProcessorMaskEx((ushort)i, out var affinity);
+                            $"Mask: {affinity.Mask:X}".Dump();
+                        }
+
+                        Results:
+
+                        Node: 0
+                        Mask: 3  (0x000000011)
+                        Node: 1
+                        Mask: 12  (0x00001100)
+                        Node: 2
+                        Mask: 48  (0x00110000)
+                        Node: 3
+                        Mask: 192 (0x11000000)
+                        */
+
+                        var nodeAffinityMask = Convert.ToUInt64(groupAffinity.Mask);
+                        if (session.CpuAffinityMask != 0)
+                        {
+                            // When CPU affinity is set, we can't simply use 
+                            // NUMA affinity, but rather need to apply the CPU affinity
+                            // settings to the select NUMA node.
+                            var firstNonZeroBitPosition = 0;
+                            while ((nodeAffinityMask & (1UL << firstNonZeroBitPosition)) == 0)
+                            {
+                                firstNonZeroBitPosition++;
+                            }
+                            session.CpuAffinityMask <<= firstNonZeroBitPosition & 0x3f;
+                        }
+                        else
+                        {
+                            session.CpuAffinityMask = nodeAffinityMask;
+                        }
+                        // NOTE: this could result in an overflow on 32-bit apps, but I can't
+                        // think of a nice way of handling it here
+                        groupAffinity.Mask = (nuint)(session.CpuAffinityMask & groupAffinity.Mask);
+
+                        return groupAffinity;
+                    }
+                    else
+                    {
+                        GROUP_AFFINITY groupAffinity = new GROUP_AFFINITY();
+                        var size = (uint)Marshal.SizeOf(groupAffinity);
+                        var length = 0u;
+                        CheckWin32Result(PInvoke.QueryInformationJobObject(job.JobHandle, JOBOBJECTINFOCLASS.JobObjectGroupInformationEx,
+                                &groupAffinity, size, &length));
+
+                        // currently we support only one processor group per process
+                        Debug.Assert(length == size);
+
+                        // groupAffinity.Mask retrieved from the QueryInformationJobObject is the affinity mask
+                        // of the group. It is hard to tell if it's correct - I would expect the currently set affinity,
+                        // but I will stick to the affinity retrieved from the GetProcessAffinityMask
+                        groupAffinity.Mask = (nuint)(session.CpuAffinityMask & systemOrProcessorGroupAffinityMask);
+
+                        return groupAffinity;
+                    }
+                };
+
+                var groupAffinity = calculateGroupAffinity();
+                logger.TraceInformation($"Group affinity number: {groupAffinity.Group}, mask: 0x{groupAffinity.Mask:x}");
+
+                var size = (uint)Marshal.SizeOf(groupAffinity);
                 CheckWin32Result(PInvoke.SetInformationJobObject(job.JobHandle, JOBOBJECTINFOCLASS.JobObjectGroupInformationEx,
-                    &affinity, size));
+                    &groupAffinity, size));
+
             }
         }
 
