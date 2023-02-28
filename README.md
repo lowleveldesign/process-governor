@@ -3,113 +3,100 @@
 
 ![.NET](https://github.com/lowleveldesign/process-governor/workflows/build/badge.svg)
 
-This application allows you to set constraints on a process. It uses [a job object](https://msdn.microsoft.com/en-us/library/windows/desktop/ms684161(v=vs.85).aspx) for this purpose. 
+This application allows you to set constraints on Windows processes. It uses [a job object](https://msdn.microsoft.com/en-us/library/windows/desktop/ms684161(v=vs.85).aspx) for this purpose. 
+
+**Table of contents**
+
+- [Setting procgov limits on a process](#setting-procgov-limits-on-a-process)
+- [Setting procgov limits on multiple processes](#setting-procgov-limits-on-multiple-processes)
+- [Update already applied limits](#update-already-applied-limits)
+- [Available process constraints](#available-process-constraints)
+  - [Limit memory of a process](#limit-memory-of-a-process)
+  - [Limit CPU usage of a process (CPU affinity)](#limit-cpu-usage-of-a-process-cpu-affinity)
+  - [Limit the CPU rate](#limit-the-cpu-rate)
+  - [Limit the execution time of the process (clock time)](#limit-the-execution-time-of-the-process-clock-time)
+  - [Limit the user-mode execution time](#limit-the-user-mode-execution-time)
+- [Other](#other)
+  - [Set additional environment variables for a process](#set-additional-environment-variables-for-a-process)
+  - [Enable process privileges](#enable-process-privileges)
+- [Contributions](#contributions)
+- [Links](#links)
+
+## Installation
 
 You may download the latest version binaries from the [release page](https://github.com/lowleveldesign/process-governor/releases) or install it with [Chocolatey](https://chocolatey.org/):
 
 ```
-choco install procgov
+> choco install procgov
 ```
 
-:warning: Always use procgov executable with the same bitness as your application.
+:warning: Remember to use procgov32.exe with 32-bit apps and procgov64.exe with 64-bit ones.
 
-The available options are:
+## Setting procgov limits on a process
+
+You may set limits on a newly created process or on an already running one. To **attach to a process** use the **-p|--pid** switch, eg.
 
 ```
-Usage: procgov64 [OPTIONS] args
-
-Options:
-  -m, --maxmem=VALUE         Max committed memory usage in bytes (accepted
-                               suffixes: K, M, or G).
-      --maxjobmem=VALUE      Max committed memory usage for all the processes
-                               in the job (accepted suffixes: K, M, or G).
-      --maxws=VALUE          Max working set size in bytes (accepted
-                               suffixes: K, M, or G). Must be set with minws.
-      --minws=VALUE          Min working set size in bytes (accepted
-                               suffixes: K, M, or G). Must be set with maxws.
-      --env=VALUE            A text file with environment variables (each
-                               line in form: VAR=VAL). Applies only to newly
-                               created processes.
-  -n, --node=VALUE           The preferred NUMA node for the process.
-  -c, --cpu=VALUE            If in hex (starts with 0x) it is treated as an
-                               affinity mask, otherwise it is a number of CPU
-                               cores assigned to your app. If you also provide
-                               the NUMA node, this setting will apply only to
-                               this node.
-  -e, --cpurate=VALUE        The maximum CPU rate in % for the process. If
-                               you also set the affinity, the rate will apply
-                               only to the selected CPU cores. (Windows 8.1+)
-  -b, --bandwidth=VALUE      The maximum bandwidth (in bytes) for the process
-                               outgoing network traffic (accepted suffixes: K,
-                               M, or G). (Windows 10+)
-  -r, --recursive            Apply limits to child processes too (will wait
-                               for all processes to finish).
-      --newconsole           Start the process in a new console window.
-      --nogui                Hide Process Governor console window (set always
-                               when installed as debugger).
-  -p, --pid=VALUE            Attach to an already running process
-      --install              Install procgov as a debugger for a specific
-                               process using Image File Executions. DO NOT USE
-                               this option if the process you want to control
-                               starts child instances of itself (for example,
-                               Chrome).
-  -t, --timeout=VALUE        Kill the process (with -r, also all its
-                               children) if it does not finish within the
-                               specified time. Add suffix to define the time
-                               unit. Valid suffixes are: ms, s, m, h.
-      --process-utime=VALUE  Kill the process (with -r, also applies to its
-                               children) if it exceeds the given user-mode
-                               execution time. Add suffix to define the time
-                               unit. Valid suffixes are: ms, s, m, h.
-      --job-utime=VALUE      Kill the process (with -r, also all its
-                               children) if the total user-mode execution time
-                               exceed the specified value. Add suffix to define
-                               the time unit. Valid suffixes are: ms, s, m, h.
-      --uninstall            Uninstall procgov for a specific process.
-      --enable-privileges=VALUE
-                             Enables the specified privileges in the remote
-                               process. You may specify multiple privileges by
-                               splitting them with commas, for example,
-                               'SeDebugPrivilege,SeLockMemoryPrivilege'
-      --debugger             Internal - do not use.
-  -q, --quiet                Do not show procgov messages.
-      --nowait               Does not wait for the target process(es) to exit.
-  -v, --verbose              Show verbose messages in the console.
-  -h, --help                 Show this message and exit
-  -?                         Show this message and exit
+> procgov32 --maxmem 40M --pid 1234
 ```
 
-You may set limits on a newly created process or on an already running one. To **attach to a process** use the **-p|--pid** switch, eg. `procgov32 --maxmem 40M --pid 1234`. To **start a new process** with the limits applied, just pass the process image path as a procgov argument, eg. `procgov32 --maxmem 40M c:\temp\test.exe`. If you need to **pass any parameters to the target process**, it's best to use `--` to separate procgov parameters from the target process ones, for example, `procgov32 -m 100M -- test.exe -arg1 -arg2=val2 arg3`. 
+To **start a new process** with the limits applied, just pass the process image path as a procgov argument, eg. `procgov32 --maxmem 40M c:\temp\test.exe`. If you need to **pass any parameters to the target process**, it's best to use `--` to separate procgov parameters from the target process ones, for example:
 
-Starting from version 2.8, it is possible to **update once set limits**. Simply run procgov providing new limits and the target process ID. Procgov will update only the specified limits. Let's have a look at an example to understand this behavior better:
+```
+> procgov32 -m 100M -- test.exe -arg1 -arg2=val2 arg3
+````
 
-```powershell
-PS> procgov64 -m 100M -c 2 notepad.exe
-# notepad PID: 1234
-#
-# applied limits:
-#  - CPU affinity: 2 cores
-#  - max committed memory: 100MB
-#
-# <stop procgov with Ctrl+C>
+Finally, you may **run procgov always when a given process starts**. When you use the **--install** switch Process Governor will add a special key to the **Image File Execution Options** in the registry, so that it will always start before your chosen process. To install Process Governor for a test.exe process, use the following command: `procgov64 --install --maxmem 40M test.exe`. You may later remove this installation by using the **--uninstall** switch, eg. `procgov64 --uninstall test.exe`. Be careful with this option as it may break some applications, especially those that spawn child processes with the same executable as the parent, for example, chrome.exe or msedge.exe.
 
-PS> procgov64 -m 120M -p 1234
-# On rerun, procgov will update the memory limit, but it won't modify the CPU affinity
-#
-# applied limits:
-#  - CPU affinity: 2 cores
-#  - max committed memory: 120MB
+## Setting procgov limits on multiple processes
+
+Starting from version 2.12 it is possible to assign multiple processes to the same job object. When you provide more than one process ID to the **-p** parameter, procgov will apply the same limits for all the processes, for example:
+
+```
+> procgov64 --maxmem 100M --pid 1234,1235,1236
 ```
 
-Finally, you may **run procgov always when a given process starts**. When you use the **--install** switch Process Governor will add a special key to the **Image File Execution Options** in the registry, so that it will always start before your chosen process. To install Process Governor for a test.exe process, use the following command: `procgov64 --install --maxmem 40M test.exe`. You may later remove this installation by using the **--uninstall** switch, eg. `procgov64 --uninstall test.exe`.
+If any of the processes was already assigned to a procgov job object, others will be assigned to it as well.
 
-## Limit memory of a process
+## Update already applied limits
 
-With the **--maxmem** switch Process Governor allows you to set a limit on a memory committed by a process. On Windows committed memory is actually all private memory that the process uses. This way you may use Process Governor to test your .NET applications (including web applications) for memory leaks. If the process is leaking memory you faster get the **OutOfMemoryException**.
+Starting from version 2.8, it is possible to **update once set limits**. Simply run procgov providing new limits and the target process ID(s). Procgov will update only the specified limits. Let's have a look at an example to understand this behavior better:
 
-With the **--maxws** and **--minws** switches you may control the maximum and minimum working set sizes of the process. If **--maxws** is > 0, **--minws** must also be > 0, and vice-versa.
+```
+We set a CPU limit on a process 1234
+> procgov64 --nowait -c 2 -p 1234
 
-## Limit CPU usage of a process (CPU affinity)
+Then we run procgov again with the new CPU limit - procgov will update the existing job object
+> procgov64 --nowait -c 4 -p 1234
+```
+
+## Available process constraints
+
+### Limit memory of a process
+
+With the **--maxmem** (**-m**) switch Process Governor allows you to set a limit on a memory committed by a process. On Windows committed memory is actually all private memory that the process uses. This way you may use Process Governor to test your .NET applications (including web applications) for memory leaks. If the process is leaking memory you faster get the **OutOfMemoryException**.
+
+```
+> procgov64 -m 100M -c 2 notepad.exe
+
+> procgov64 -m 120M -p 1234
+```
+
+With the **--maxws** and **--minws** switches you may control the maximum and minimum working set sizes (physical memory usage) of the process. If you want to limit the working set size, remember to always provide values greater than zero for both these parameters, for example:
+
+```
+> procgov64 --minws 1M --maxws 120M -p 1234
+```
+
+The **--maxjobmem** option allows you to specify the maximum committed memory for all the processes that belong to a given job object. This might be handy when you enable job propagation to child processes or you use the same job object to control multiple processes, for example:
+
+```
+> procgov64 -r --maxjobmem 200M -- cmd.exe
+
+> procgov64 -r --maxjobmem 1G -p 1234,1235,1236
+```
+
+### Limit CPU usage of a process (CPU affinity)
 
 With the **--cpu** switch you may control on which cores your application will run. If you provide the CPU core number as **a decimal value**, your application will be allowed to use the specified number of cores. If you provide the CPU core number as **a hex value (with 0x prefix)**, this number will be treated as an affinity mask - where each bit represents a CPU core (starting from the least significant bit). Let's have a look at two example usages on a CPU intensive application.  In a first one we set the CPU core limit to two cores:
 
@@ -131,33 +118,43 @@ A CPU graph in this case looks as follows (notice only the second core is used):
 
 ![cpu-equals-0x2](https://raw.githubusercontent.com/lowleveldesign/process-governor/master/docs/cpuaffinity-equals-0x2.png)
 
-## Limit the CPU rate
+### Limit the CPU rate
 
 The **--cpu-rate** option allows you to set the maximum CPU rate for the process. If you also set the CPU affinity, the rate will apply only to the selected cores. For example, if you have eight logical CPU cores on your machine and you set the CPU rate to 100% and the CPU affinity to 0x7 (first four cores), the maximum CPU rate reported for this process by the monitoring tools will be 50% (we are running at full capacity but on a half of the CPU number).
 
-## Limit the execution time of the process (clock time)
+### Limit the execution time of the process (clock time)
 
 With the **--timeout** option you may define the maximum time (clock time) the process can run before procgov terminates it. If the **--recursive** option is set and the timeout passes, progov will terminate also all the process children started from the beginning of the monitoring session.
 
-## Limit the user-mode execution time
+### Limit the user-mode execution time
 
 The **--process-utime** and **--job-utime** options allow you to set a limit on the maximum user-mode execution time for a process (with the **--recursive** option also all its children) or a job. The latter case will make sense with the **--recursive** option as it will set a limit on the total user-mode execution time for the process and its children.
 
-## Set additional environment variables for a process
+## Other 
 
-With the **--env** switch you may provide a file with additional environment variables, which should be set for a process. An example usage (provided by @weidingerhp) is to set the COR PROFILING variables:
+### Set additional environment variables for a process
+
+With the **--env** switch you may set process environment variables. This switch accepts a path to a text file with the variable values, for example:
 
 ```
 COR_ENABLE_PROFILING=0x01
 COR_PROFILER={32E2F4DA-1BEA-47ea-88F9-C5DAF691C94A}
 ```
 
-## Enable process privileges
+The procgov command might look as follows:
+
+```
+> procgov64 --env c:\temp\env.txt -c 2 dotnet_app.exe
+```
+
+You may set the environment variables when starting a new process or accessing an existing one.
+
+### Enable process privileges
 
 Starting from version 2.10, you can enable privileges in the target process with the **--enable-privileges** switch. You may specify multiple privileges, separated by a comma, for example:
 
 ```
-procgov64 --enable-privileges=SeDebugPrivilege,SeShutdownPrivilege notepad
+> procgov64 --enable-privileges=SeDebugPrivilege,SeShutdownPrivilege notepad
 ```
 
 Keep in mind that in Windows, you can't add new privileges to the process token. You may only enable existing ones. You may check the available process privileges in Process Hacker or Process Explorer. Check the documentation for a given privilege to learn how to make it available for a given user (for example, you may need to update group policies).

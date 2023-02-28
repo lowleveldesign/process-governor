@@ -2,38 +2,32 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 
-namespace LowLevelDesign
+namespace ProcessGovernor;
+
+public sealed class Win32Job : IDisposable
 {
-    public sealed class Win32Job : IDisposable
+    private readonly SafeHandle hJob;
+    private readonly string jobName;
+    private readonly Stopwatch? stopWatch;
+    private readonly long clockTimeLimitInMilliseconds;
+
+    public Win32Job(SafeHandle hJob, string jobName, long clockTimeLimitInMilliseconds = 0L)
     {
-        private readonly SafeHandle hJob, hProcess;
-        private readonly bool propagateOnChildProcesses;
-        private readonly Stopwatch? stopWatch;
-        private readonly long clockTimeLimitInMilliseconds;
+        this.hJob = hJob;
+        this.jobName = jobName;
 
-        public Win32Job(SafeHandle hJob, SafeHandle hProcess, bool propagateOnChildProcesses,
-            long clockTimeLimitInMilliseconds = 0L)
-        {
-            this.hJob = hJob;
-            this.hProcess = hProcess;
-            this.propagateOnChildProcesses = propagateOnChildProcesses;
+        this.clockTimeLimitInMilliseconds = clockTimeLimitInMilliseconds;
+        stopWatch = clockTimeLimitInMilliseconds > 0 ? Stopwatch.StartNew() : null;
+    }
 
-            this.clockTimeLimitInMilliseconds = clockTimeLimitInMilliseconds;
-            stopWatch = clockTimeLimitInMilliseconds > 0 ? Stopwatch.StartNew() : null;
-        }
+    public SafeHandle JobHandle => hJob;
 
-        public SafeHandle ProcessHandle => hProcess;
+    public string JobName => jobName;
 
-        public SafeHandle JobHandle => hJob;
+    public bool IsTimedOut => stopWatch != null && stopWatch.ElapsedMilliseconds > clockTimeLimitInMilliseconds;
 
-        public bool PropagateOnChildProcesses => propagateOnChildProcesses;
-
-        public bool IsTimedOut => stopWatch != null && stopWatch.ElapsedMilliseconds > clockTimeLimitInMilliseconds;
-
-        public void Dispose()
-        {
-            hJob.Dispose();
-            hProcess.Dispose();
-        }
+    public void Dispose()
+    {
+        hJob.Dispose();
     }
 }

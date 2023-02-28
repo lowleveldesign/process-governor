@@ -2,16 +2,12 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Reflection;
-using System.Text;
-using System.Threading.Tasks;
 
-namespace LowLevelDesign
+namespace ProcessGovernor.Tests
 {
 
     [TestFixture]
-    public class ProcessGovernorTests
+    public class ProcessGovernorUnitTests
     {
         [Test]
         public void CalculateAffinityMaskFromCpuCountTest()
