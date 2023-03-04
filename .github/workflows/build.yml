@@ -16,27 +16,27 @@ jobs:
 
     - uses: actions/setup-dotnet@v3
       with:
-        dotnet-version: '6.0.x' # SDK Version to use.
+        dotnet-version: '7.0.x' # SDK Version to use.
 
-    - run: dotnet test -c release -r win-x86 -f net6.0-windows
+    - run: dotnet test -c release -a x86
       working-directory: ./procgov-tests
 
-    - run: dotnet publish -c release -r win-x86 --self-contained -f net6.0-windows
+    - run: dotnet publish -c release -r win-x86 --self-contained
       working-directory: ./procgov
 
-    - run: dotnet test -c release -r win-x64 -f net6.0-windows
+    - run: dotnet test -c release -a x64
       working-directory: ./procgov-tests
 
-    - run: dotnet publish -c release -r win-x64 --self-contained -f net6.0-windows
+    - run: dotnet publish -c release -r win-x64 --self-contained
       working-directory: ./procgov
 
     - name: Copy artifacts
       run: |
         New-Item -Type Directory -Path artifacts
-        Copy-Item -Path "procgov/bin/release/net6.0-windows/win-x86/publish/procgov.exe" -Destination "artifacts/procgov32.exe"
-        Copy-Item -Path "procgov/bin/release/net6.0-windows/win-x86/publish/procgov.pdb" -Destination "artifacts/procgov32.pdb"
-        Copy-Item -Path "procgov/bin/release/net6.0-windows/win-x64/publish/procgov.exe" -Destination "artifacts/procgov64.exe"
-        Copy-Item -Path "procgov/bin/release/net6.0-windows/win-x64/publish/procgov.pdb" -Destination "artifacts/procgov64.pdb"
+        Copy-Item -Path "procgov/bin/release/net7.0-windows/win-x86/publish/procgov.exe" -Destination "artifacts/procgov32.exe"
+        Copy-Item -Path "procgov/bin/release/net7.0-windows/win-x86/publish/procgov.pdb" -Destination "artifacts/procgov32.pdb"
+        Copy-Item -Path "procgov/bin/release/net7.0-windows/win-x64/publish/procgov.exe" -Destination "artifacts/procgov64.exe"
+        Copy-Item -Path "procgov/bin/release/net7.0-windows/win-x64/publish/procgov.pdb" -Destination "artifacts/procgov64.pdb"
 
     - uses: actions/upload-artifact@v3
       with:
