@@ -18,7 +18,8 @@ internal static class ProcessModule
     {
         var currentProcessId = (uint)Environment.ProcessId;
         using var currentProcessHandle = PInvoke.GetCurrentProcess_SafeHandle();
-        var dbgpriv = AccountPrivilegeModule.EnablePrivileges(currentProcessId, currentProcessHandle, new[] { "SeDebugPrivilege" });
+        var dbgpriv = AccountPrivilegeModule.EnablePrivileges(currentProcessId, currentProcessHandle, new[] { "SeDebugPrivilege" },
+                        TraceEventType.Information);
 
         try
         {
@@ -56,13 +57,13 @@ internal static class ProcessModule
             Debug.Assert(job != null);
             Win32JobModule.SetLimits(job, session, GetSystemOrProcessorGroupAffinity(targetProcessHandle, session));
 
-            AccountPrivilegeModule.EnablePrivileges((uint)pid, targetProcessHandle, session.Privileges);
+            AccountPrivilegeModule.EnablePrivileges((uint)pid, targetProcessHandle, session.Privileges, TraceEventType.Error);
 
             return job;
         }
         finally
         {
-            AccountPrivilegeModule.RestorePrivileges(currentProcessId, currentProcessHandle, dbgpriv);
+            AccountPrivilegeModule.RestorePrivileges(currentProcessId, currentProcessHandle, dbgpriv, TraceEventType.Information);
         }
     }
 
@@ -119,7 +120,7 @@ internal static class ProcessModule
                     logger.TraceEvent(TraceEventType.Verbose, 0, $"Process {processId} already assigned to job '{jobName}'.");
                     SetProcessEnvironmentVariables(processId, session.AdditionalEnvironmentVars);
 
-                    AccountPrivilegeModule.EnablePrivileges((uint)processId, processHandle, session.Privileges);
+                    AccountPrivilegeModule.EnablePrivileges((uint)processId, processHandle, session.Privileges, TraceEventType.Error);
                 }
                 else
                 {
@@ -135,13 +136,14 @@ internal static class ProcessModule
                 logger.TraceEvent(TraceEventType.Verbose, 0, $"Assigning process {processId} to job '{job.JobName}'");
                 Win32JobModule.AssignProcess(job, processHandle, session.PropagateOnChildProcesses);
 
-                AccountPrivilegeModule.EnablePrivileges((uint)processId, processHandle, session.Privileges);
+                AccountPrivilegeModule.EnablePrivileges((uint)processId, processHandle, session.Privileges, TraceEventType.Error);
             }
         }
 
         var currentProcessId = (uint)Environment.ProcessId;
         using var currentProcessHandle = PInvoke.GetCurrentProcess_SafeHandle();
-        var dbgpriv = AccountPrivilegeModule.EnablePrivileges(currentProcessId, currentProcessHandle, new[] { "SeDebugPrivilege" });
+        var dbgpriv = AccountPrivilegeModule.EnablePrivileges(currentProcessId, currentProcessHandle, new[] { "SeDebugPrivilege" },
+                        TraceEventType.Information);
 
         try
         {
@@ -166,7 +168,7 @@ internal static class ProcessModule
                     // we need to update variables and priviles in the 'job process' manually as we
                     // won't be assigning it to the job to which it is already assigned
                     SetProcessEnvironmentVariables(jobProcessId, session.AdditionalEnvironmentVars);
-                    AccountPrivilegeModule.EnablePrivileges((uint)jobProcessId, jobProcessHandle, session.Privileges);
+                    AccountPrivilegeModule.EnablePrivileges((uint)jobProcessId, jobProcessHandle, session.Privileges, TraceEventType.Error);
 
                     job = new Win32Job(jobHandle, jobName, session.ClockTimeLimitInMilliseconds);
 
@@ -198,7 +200,7 @@ internal static class ProcessModule
         }
         finally
         {
-            AccountPrivilegeModule.RestorePrivileges(currentProcessId, currentProcessHandle, dbgpriv);
+            AccountPrivilegeModule.RestorePrivileges(currentProcessId, currentProcessHandle, dbgpriv, TraceEventType.Information);
         }
     }
 
@@ -235,7 +237,7 @@ internal static class ProcessModule
                         session.ClockTimeLimitInMilliseconds);
             Win32JobModule.SetLimits(job, session, GetSystemOrProcessorGroupAffinity(processHandle, session));
 
-            AccountPrivilegeModule.EnablePrivileges(pi.dwProcessId, processHandle, session.Privileges);
+            AccountPrivilegeModule.EnablePrivileges(pi.dwProcessId, processHandle, session.Privileges, TraceEventType.Error);
 
             CheckWin32Result(PInvoke.ResumeThread(pi.hThread));
 
@@ -287,7 +289,7 @@ internal static class ProcessModule
                         session.ClockTimeLimitInMilliseconds);
             Win32JobModule.SetLimits(job, session, GetSystemOrProcessorGroupAffinity(processHandle, session));
 
-            AccountPrivilegeModule.EnablePrivileges(pi.dwProcessId, processHandle, session.Privileges);
+            AccountPrivilegeModule.EnablePrivileges(pi.dwProcessId, processHandle, session.Privileges, TraceEventType.Error);
 
             // resume process main thread by detaching from the debuggee
             CheckWin32Result(PInvoke.DebugActiveProcessStop(pi.dwProcessId));
