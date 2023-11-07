@@ -114,15 +114,15 @@ public static class NtApi
             return;
         }
 
-        static nint GetExportedProcedureOffset(Process process, string moduleName, string procedureName)
+        static nint GetExportedProcedureOffsetInCurrentProcess(string moduleName, string procedureName)
         {
+            using var process = Process.GetCurrentProcess();
             var m = process.Modules.Cast<WinProcessModule>().FirstOrDefault(m => string.Equals(m.ModuleName, moduleName, StringComparison.OrdinalIgnoreCase));
             return m is not null ? NativeLibrary.GetExport(m.BaseAddress, procedureName) - m.BaseAddress : nint.Zero;
         }
 
-        using var currentProcess = Process.GetCurrentProcess();
-        var fnRtlExitUserThread = GetExportedProcedureOffset(currentProcess, "ntdll.dll", "RtlExitUserThread");
-        var fnSetEnvironmentVariableW = GetExportedProcedureOffset(currentProcess, "kernel32.dll", "SetEnvironmentVariableW");
+        var fnRtlExitUserThread = GetExportedProcedureOffsetInCurrentProcess("ntdll.dll", "RtlExitUserThread");
+        var fnSetEnvironmentVariableW = GetExportedProcedureOffsetInCurrentProcess("kernel32.dll", "SetEnvironmentVariableW");
 
         using var remoteProcess = Process.GetProcessById(pid);
         var remoteNtdllAddress = remoteProcess.Modules.Cast<WinProcessModule>().First(
