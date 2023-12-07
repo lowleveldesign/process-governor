@@ -15,21 +15,18 @@ jobs:
 
     - uses: actions/setup-dotnet@v3
       with:
-        dotnet-version: '7.0.x' # SDK Version to use.
+        dotnet-version: '8.0.x' # SDK Version to use.
 
     - run: |
         Invoke-WebRequest -OutFile Update-AssemblyInfoVersionFiles.ps1 https://gist.githubusercontent.com/lowleveldesign/663de4e0d5a071f938e6f7c82d7ca9a0/raw/Update-AssemblyInfoVersionFiles.ps1
         ./Update-AssemblyInfoVersionFiles.ps1
       shell: pwsh
 
-    - run: dotnet test -c release -a x86
+    - run: dotnet test -c release
       working-directory: ./procgov-tests
 
     - run: dotnet publish -c release -r win-x86 --self-contained
       working-directory: ./procgov
-
-    - run: dotnet test -c release -a x64
-      working-directory: ./procgov-tests
 
     - run: dotnet publish -c release -r win-x64 --self-contained
       working-directory: ./procgov

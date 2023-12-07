@@ -121,9 +121,9 @@ namespace ProcessGovernor.Tests
             var session = new SessionSettings();
             var exception = Assert.Catch<Win32Exception>(() =>
             {
-                ProcessModule.StartProcessUnderDebuggerAndAssignToJobObject(new[] { "test.exe" }, session);
+                ProcessModule.StartProcessUnderDebuggerAndAssignToJobObject(new[] { "____wrong-executable.exe" }, session);
             });
-            Assert.AreEqual("The system cannot find the file specified.", exception?.Message);
+            Assert.AreEqual(2, exception?.NativeErrorCode);
         }
     }
 }

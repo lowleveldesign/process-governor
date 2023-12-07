@@ -12,7 +12,6 @@
         <FileVersion>1.0.0.0</FileVersion>
         <Platforms>AnyCPU</Platforms>
         <PublishTrimmed>true</PublishTrimmed>
-        <PublishSingleFile>true</PublishSingleFile>
     </PropertyGroup>
 
     <ItemGroup>

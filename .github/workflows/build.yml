@@ -16,16 +16,13 @@ jobs:
 
     - uses: actions/setup-dotnet@v3
       with:
-        dotnet-version: '7.0.x' # SDK Version to use.
+        dotnet-version: '8.0.x' # SDK Version to use.
 
-    - run: dotnet test -c release -a x86
+    - run: dotnet test -c release
       working-directory: ./procgov-tests
 
     - run: dotnet publish -c release -r win-x86 --self-contained
       working-directory: ./procgov
-
-    - run: dotnet test -c release -a x64
-      working-directory: ./procgov-tests
 
     - run: dotnet publish -c release -r win-x64 --self-contained
       working-directory: ./procgov
