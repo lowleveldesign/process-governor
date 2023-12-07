@@ -271,7 +271,7 @@ internal static class ProcessModule
 
         fixed (char* penv = GetEnvironmentString(session.AdditionalEnvironmentVars))
         {
-            var args = string.Join(" ", procargs).ToCharArray();
+            var args = string.Join(" ", procargs, "\0").ToCharArray();
             fixed (char* pargs = args)
             {
                 var argsSpan = new Span<char>(pargs, args.Length);
