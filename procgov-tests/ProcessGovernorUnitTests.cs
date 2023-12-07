@@ -1,6 +1,7 @@
 ﻿using NUnit.Framework;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 
 namespace ProcessGovernor.Tests
@@ -112,6 +113,17 @@ namespace ProcessGovernor.Tests
             } finally {
                 File.Delete(envFilePath);
             }
+        }
+
+        [Test]
+        public void StartProcessTest()
+        {
+            var session = new SessionSettings();
+            var exception = Assert.Catch<Win32Exception>(() =>
+            {
+                ProcessModule.StartProcessUnderDebuggerAndAssignToJobObject(new[] { "test.exe" }, session);
+            });
+            Assert.AreEqual("The system cannot find the file specified.", exception?.Message);
         }
     }
 }
