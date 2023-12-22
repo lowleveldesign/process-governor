@@ -121,6 +121,7 @@ public static class NtApi
             return m is not null ? NativeLibrary.GetExport(m.BaseAddress, procedureName) - m.BaseAddress : nint.Zero;
         }
 
+        // FIXME: I should rather use the path from the remote process modules (withdll)
         var fnRtlExitUserThread = GetExportedProcedureOffsetInCurrentProcess("ntdll.dll", "RtlExitUserThread");
         var fnSetEnvironmentVariableW = GetExportedProcedureOffsetInCurrentProcess("kernel32.dll", "SetEnvironmentVariableW");
 
