@@ -209,6 +209,7 @@ public static class NtApi
             BOOL b when b => result,
             WIN32_ERROR err when err == WIN32_ERROR.NO_ERROR => result,
             WIN32_ERROR err => throw new Win32Exception((int)err),
+            WAIT_EVENT ev when ev != WAIT_EVENT.WAIT_FAILED => result,
             NTSTATUS nt when nt.Value == 0 => result,
             NTSTATUS nt => throw new Win32Exception(nt.Value),
             _ => throw new Win32Exception()
