@@ -5,8 +5,11 @@ using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.System.Threading;
 using Windows.Win32.System.Memory;
+using Windows.Wdk.System.Threading;
 
 using WinProcessModule = System.Diagnostics.ProcessModule;
+using PInvokeWdk = Windows.Wdk.PInvoke;
+
 using System.Diagnostics;
 
 namespace ProcessGovernor;
@@ -18,7 +21,9 @@ public static class NtApi
         nint isWow64 = 0;
 
         uint returnLength = 0;
-        CheckWin32Result(PInvoke.NtQueryInformationProcess(processHandle, PROCESSINFOCLASS.ProcessWow64Information, (void*)&isWow64, (uint)nint.Size, ref returnLength));
+        CheckWin32Result(PInvokeWdk.NtQueryInformationProcess(
+            (HANDLE)processHandle.DangerousGetHandle(), PROCESSINFOCLASS.ProcessWow64Information,
+            &isWow64, (uint)nint.Size, ref returnLength));
         Debug.Assert(nint.Size == returnLength);
 
         return isWow64 != 0;
@@ -78,8 +83,9 @@ public static class NtApi
         {
             uint actualLength = (uint)Marshal.SizeOf(pbi);
             uint returnLength = 0;
-            CheckWin32Result(PInvoke.NtQueryInformationProcess(processHandle, PROCESSINFOCLASS.ProcessBasicInformation,
-                                &pbi, actualLength, ref returnLength));
+            CheckWin32Result(PInvokeWdk.NtQueryInformationProcess(
+                (HANDLE)processHandle.DangerousGetHandle(), PROCESSINFOCLASS.ProcessBasicInformation,
+                &pbi, actualLength, ref returnLength));
             Debug.Assert(actualLength == returnLength);
         }
 

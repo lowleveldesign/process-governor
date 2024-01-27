@@ -4,9 +4,9 @@ using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.Security;
 using Windows.Win32.System.JobObjects;
-using Windows.Win32.Storage.FileSystem;
 using System.ComponentModel;
 using Windows.Win32.System.SystemInformation;
+using Windows.Win32.Storage.FileSystem;
 using System.Diagnostics.CodeAnalysis;
 using static ProcessGovernor.NtApi;
 
@@ -40,7 +40,7 @@ internal static class Win32JobModule
     {
         using var currentProcessHandle = PInvoke.GetCurrentProcess_SafeHandle();
         CheckWin32Result(PInvoke.DuplicateHandle(currentProcessHandle, job.JobHandle, processHandle,
-            out _, (uint)FILE_ACCESS_FLAGS.STANDARD_RIGHTS_READ, propagateOnChildProcesses, 0));
+            out _, (uint)FILE_ACCESS_RIGHTS.STANDARD_RIGHTS_READ, propagateOnChildProcesses, 0));
 
         CheckWin32Result(PInvoke.AssignProcessToJobObject(job.JobHandle, processHandle));
     }
@@ -48,7 +48,7 @@ internal static class Win32JobModule
     public static unsafe bool TryOpen(string jobName, [NotNullWhen(true)] out SafeHandle jobHandle)
     {
         jobHandle = PInvoke.OpenJobObject(PInvoke.JOB_OBJECT_QUERY | PInvoke.JOB_OBJECT_SET_ATTRIBUTES |
-            PInvoke.JOB_OBJECT_TERMINATE | PInvoke.JOB_OBJECT_ASSIGN_PROCESS | (uint)FILE_ACCESS_FLAGS.SYNCHRONIZE,
+            PInvoke.JOB_OBJECT_TERMINATE | PInvoke.JOB_OBJECT_ASSIGN_PROCESS | (uint)FILE_ACCESS_RIGHTS.SYNCHRONIZE,
             false, $"Local\\{jobName}");
         return !jobHandle.IsInvalid;
     }
@@ -163,7 +163,7 @@ internal static class Win32JobModule
     {
         if (session.NumaNode != 0xffff || session.CpuAffinityMask != 0)
         {
-            var calculateGroupAffinity = () =>
+            GROUP_AFFINITY calculateGroupAffinity()
             {
                 if (session.NumaNode != 0xffff)
                 {
@@ -217,7 +217,7 @@ internal static class Win32JobModule
                 }
                 else
                 {
-                    GROUP_AFFINITY groupAffinity = new GROUP_AFFINITY();
+                    GROUP_AFFINITY groupAffinity = new();
                     var size = (uint)Marshal.SizeOf(groupAffinity);
                     var length = 0u;
                     CheckWin32Result(PInvoke.QueryInformationJobObject(job.JobHandle, JOBOBJECTINFOCLASS.JobObjectGroupInformationEx,
@@ -233,7 +233,7 @@ internal static class Win32JobModule
 
                     return groupAffinity;
                 }
-            };
+            }
 
             var groupAffinity = calculateGroupAffinity();
             logger.TraceInformation($"Group affinity number: {groupAffinity.Group}, mask: 0x{groupAffinity.Mask:x}");
@@ -268,10 +268,10 @@ internal static class Win32JobModule
         {
             switch (PInvoke.WaitForSingleObject(job.JobHandle, 200 /* ms */))
             {
-                case WIN32_ERROR.WAIT_OBJECT_0:
+                case WAIT_EVENT.WAIT_OBJECT_0:
                     logger.TraceInformation("End of job time limit passed - terminating.");
                     return 2;
-                case WIN32_ERROR.WAIT_FAILED:
+                case WAIT_EVENT.WAIT_FAILED:
                     throw new Win32Exception();
                 default:
                     JOBOBJECT_BASIC_ACCOUNTING_INFORMATION jobBasicAcctInfo;

@@ -13,11 +13,11 @@ namespace ProcessGovernor.Tests
         [Test]
         public void CalculateAffinityMaskFromCpuCountTest()
         {
-            Assert.AreEqual(0x1UL, Program.CalculateAffinityMaskFromCpuCount(1));
-            Assert.AreEqual(0x3UL, Program.CalculateAffinityMaskFromCpuCount(2));
-            Assert.AreEqual(0xfUL, Program.CalculateAffinityMaskFromCpuCount(4));
-            Assert.AreEqual(0x1ffUL, Program.CalculateAffinityMaskFromCpuCount(9));
-            Assert.AreEqual(0xffffffffffffffffUL, Program.CalculateAffinityMaskFromCpuCount(64));
+            Assert.That(Program.CalculateAffinityMaskFromCpuCount(1), Is.EqualTo(0x1UL));
+            Assert.That(Program.CalculateAffinityMaskFromCpuCount(2), Is.EqualTo(0x3UL));
+            Assert.That(Program.CalculateAffinityMaskFromCpuCount(4), Is.EqualTo(0xfUL));
+            Assert.That(Program.CalculateAffinityMaskFromCpuCount(9), Is.EqualTo(0x1ffUL));
+            Assert.That(Program.CalculateAffinityMaskFromCpuCount(64), Is.EqualTo(0xffffffffffffffffUL));
         }
 
         [Test]
@@ -32,11 +32,10 @@ namespace ProcessGovernor.Tests
 
                 var session = new SessionSettings();
                 Program.LoadCustomEnvironmentVariables(session, envVarsFile);
-                CollectionAssert.AreEqual(new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) {
+                Assert.That(session.AdditionalEnvironmentVars, Is.EquivalentTo(new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) {
                     { "TEST", "TESTVAL" },
                     { "TEST2", "TEST VAL2" }
-                }, session.AdditionalEnvironmentVars);
-
+                }));
 
                 using (var writer = new StreamWriter(envVarsFile, false)) {
                     writer.WriteLine("  = TEST VAL2  ");
@@ -55,19 +54,19 @@ namespace ProcessGovernor.Tests
         [Test]
         public void ParseMemoryStringTest()
         {
-            Assert.AreEqual(2 * 1024u, Program.ParseMemoryString("2K"));
-            Assert.AreEqual(3 * 1024u * 1024u, Program.ParseMemoryString("3M"));
-            Assert.AreEqual(3 * 1024u * 1024u * 1024u, Program.ParseMemoryString("3G"));
+            Assert.That(Program.ParseMemoryString("2K"), Is.EqualTo(2 * 1024u));
+            Assert.That(Program.ParseMemoryString("3M"), Is.EqualTo(3 * 1024u * 1024u));
+            Assert.That(Program.ParseMemoryString("3G"), Is.EqualTo(3 * 1024u * 1024u * 1024u));
         }
 
         [Test]
         public void ParseTimeStringToMillisecondsTest()
         {
-            Assert.AreEqual(10u, Program.ParseTimeStringToMilliseconds("10"));
-            Assert.AreEqual(10u, Program.ParseTimeStringToMilliseconds("10ms"));
-            Assert.AreEqual(10000u, Program.ParseTimeStringToMilliseconds("10s"));
-            Assert.AreEqual(600000u, Program.ParseTimeStringToMilliseconds("10m"));
-            Assert.AreEqual(36000000u, Program.ParseTimeStringToMilliseconds("10h"));
+            Assert.That(Program.ParseTimeStringToMilliseconds("10"), Is.EqualTo(10u));
+            Assert.That(Program.ParseTimeStringToMilliseconds("10ms"), Is.EqualTo(10u));
+            Assert.That(Program.ParseTimeStringToMilliseconds("10s"), Is.EqualTo(10000u));
+            Assert.That(Program.ParseTimeStringToMilliseconds("10m"), Is.EqualTo(600000u));
+            Assert.That(Program.ParseTimeStringToMilliseconds("10h"), Is.EqualTo(36000000u));
             Assert.Throws<FormatException>(() => Program.ParseTimeStringToMilliseconds("sdfms"));
         }
 
@@ -86,7 +85,7 @@ namespace ProcessGovernor.Tests
                 MinWorkingSetSize = 1024,
                 MaxWorkingSetSize = 1024 * 1024,
                 NumaNode = 1,
-                Privileges = new[] { "SeDebugPrivilege", "SeShutdownPrivilege" },
+                Privileges = ["SeDebugPrivilege", "SeShutdownPrivilege"],
                 PropagateOnChildProcesses = true,
                 SpawnNewConsoleWindow = true
             };
@@ -97,19 +96,19 @@ namespace ProcessGovernor.Tests
             var debugger = Program.PrepareDebuggerCommandString(session, appImageExe, true);
 
             var envFilePath = Program.GetAppEnvironmentFilePath(appImageExe);
-            Assert.True(File.Exists(envFilePath));
+            Assert.That(File.Exists(envFilePath), Is.True);
 
             try {
 
                 var txt = File.ReadAllText(envFilePath);
-                Assert.AreEqual("TEST=TESTVAL\r\nTEST2=TESTVAL2\r\n", txt);
+                Assert.That(txt, Is.EqualTo("TEST=TESTVAL\r\nTEST2=TESTVAL2\r\n"));
 
                 var expectedCmdLine =
                     $"\"{Environment.GetCommandLineArgs()[0]}\" --nogui --debugger --env=\"{envFilePath}\" --cpu=0x2 --maxmem=1048576 " +
                     "--maxjobmem=2097152 --maxws=1048576 --minws=1024 --node=1 --cpurate=90 --bandwidth=100 --recursive " +
                     "--timeout=2000 --process-utime=500 --job-utime=1000 --enable-privileges=SeDebugPrivilege,SeShutdownPrivilege --nowait";
 
-                Assert.AreEqual(expectedCmdLine, debugger);
+                Assert.That(debugger, Is.EqualTo(expectedCmdLine));
             } finally {
                 File.Delete(envFilePath);
             }
@@ -123,7 +122,7 @@ namespace ProcessGovernor.Tests
             {
                 ProcessModule.StartProcessUnderDebuggerAndAssignToJobObject(new[] { "____wrong-executable.exe" }, session);
             });
-            Assert.AreEqual(2, exception?.NativeErrorCode);
+            Assert.That(exception?.NativeErrorCode, Is.EqualTo(2));
         }
     }
 }
