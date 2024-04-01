@@ -19,7 +19,12 @@ internal static class Win32JobModule
     public static unsafe Win32Job CreateJobObjectAndAssignProcess(SafeHandle processHandle, string jobName, bool propagateOnChildProcesses,
         long clockTimeLimitInMilliseconds)
     {
-        var job = CreateJobObject(jobName, clockTimeLimitInMilliseconds);
+        var securityAttributes = new SECURITY_ATTRIBUTES();
+        securityAttributes.nLength = (uint)Marshal.SizeOf(securityAttributes);
+
+        var hJob = CheckWin32Result(PInvoke.CreateJobObject(securityAttributes, $"Local\\{jobName}"));
+        var job = new Win32Job(hJob, jobName, processHandle, clockTimeLimitInMilliseconds);
+
         AssignProcess(job, processHandle, propagateOnChildProcesses);
 
         return job;
@@ -31,7 +36,7 @@ internal static class Win32JobModule
         securityAttributes.nLength = (uint)Marshal.SizeOf(securityAttributes);
 
         var hJob = CheckWin32Result(PInvoke.CreateJobObject(securityAttributes, $"Local\\{jobName}"));
-        var job = new Win32Job(hJob, jobName, clockTimeLimitInMilliseconds);
+        var job = new Win32Job(hJob, jobName, null, clockTimeLimitInMilliseconds);
 
         return job;
     }
@@ -266,11 +271,16 @@ internal static class Win32JobModule
     {
         while (!ct.IsCancellationRequested)
         {
-            switch (PInvoke.WaitForSingleObject(job.JobHandle, 200 /* ms */))
+            switch (PInvoke.WaitForSingleObject(job.WaitHandle, 200 /* ms */))
             {
                 case WAIT_EVENT.WAIT_OBJECT_0:
-                    logger.TraceInformation("End of job time limit passed - terminating.");
-                    return 2;
+                    logger.TraceInformation("Job or process got signaled.");
+                    if (job.ProcessHandle is { } h && !h.IsInvalid)
+                    {
+                        PInvoke.GetExitCodeProcess(h, out var exitCode);
+                        return (int)exitCode;
+                    }
+                    return 0;
                 case WAIT_EVENT.WAIT_FAILED:
                     throw new Win32Exception();
                 default:
@@ -289,7 +299,7 @@ internal static class Win32JobModule
                     {
                         logger.TraceInformation("Clock time limit passed - terminating.");
                         PInvoke.TerminateJobObject(job.JobHandle, 1);
-                        return 1;
+                        return 0;
                     }
                     else
                     {
@@ -298,6 +308,6 @@ internal static class Win32JobModule
             }
         }
 
-        return 3;
+        return 0;
     }
 }

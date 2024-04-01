@@ -40,7 +40,7 @@ internal static class ProcessModule
                     CheckWin32Result(PInvoke.IsProcessInJob(targetProcessHandle, jobHandle, out var jobNameMatches)) && jobNameMatches)
                 {
                     SetProcessEnvironmentVariables(pid, session.AdditionalEnvironmentVars);
-                    return new Win32Job(jobHandle, jobName, session.ClockTimeLimitInMilliseconds);
+                    return new Win32Job(jobHandle, jobName, null, session.ClockTimeLimitInMilliseconds);
                 }
                 else
                 {
@@ -170,7 +170,7 @@ internal static class ProcessModule
                     SetProcessEnvironmentVariables(jobProcessId, session.AdditionalEnvironmentVars);
                     AccountPrivilegeModule.EnablePrivileges((uint)jobProcessId, jobProcessHandle, session.Privileges, TraceEventType.Error);
 
-                    job = new Win32Job(jobHandle, jobName, session.ClockTimeLimitInMilliseconds);
+                    job = new Win32Job(jobHandle, jobName, null, session.ClockTimeLimitInMilliseconds);
 
                     logger.TraceEvent(TraceEventType.Verbose, 0,
                         $"Procgov job already exists ('{jobName}') for process {jobProcessId} and we will use it for other processes.");
@@ -209,8 +209,7 @@ internal static class ProcessModule
     {
         var pi = new PROCESS_INFORMATION();
         var si = new STARTUPINFOW();
-        var processCreationFlags = PROCESS_CREATION_FLAGS.CREATE_UNICODE_ENVIRONMENT |
-                                   PROCESS_CREATION_FLAGS.CREATE_SUSPENDED;
+        var processCreationFlags = PROCESS_CREATION_FLAGS.CREATE_UNICODE_ENVIRONMENT | PROCESS_CREATION_FLAGS.CREATE_SUSPENDED;
         if (session.SpawnNewConsoleWindow)
         {
             processCreationFlags |= PROCESS_CREATION_FLAGS.CREATE_NEW_CONSOLE;
@@ -230,7 +229,7 @@ internal static class ProcessModule
             }
         }
 
-        using var processHandle = new SafeFileHandle(pi.hProcess, true);
+        var processHandle = new SafeFileHandle(pi.hProcess, true);
         try
         {
             var job = Win32JobModule.CreateJobObjectAndAssignProcess(processHandle, jobName, session.PropagateOnChildProcesses,
@@ -280,7 +279,7 @@ internal static class ProcessModule
             }
         }
 
-        using var processHandle = new SafeFileHandle(pi.hProcess, true);
+        var processHandle = new SafeFileHandle(pi.hProcess, true);
         try
         {
             CheckWin32Result(PInvoke.DebugSetProcessKillOnExit(false));
