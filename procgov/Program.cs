@@ -26,7 +26,8 @@ public static class Program
     public static int Main(string[] args)
     {
         var procargs = new List<string>();
-        bool showhelp = false, nogui = false, debug = false, quiet = false, nowait = false;
+        bool showhelp = false, nogui = false, debug = false, quiet = false, nowait = false,
+            terminateJobOnExit = false;
         int[] pids = Array.Empty<int>();
         var registryOperation = RegistryOperation.NONE;
 
@@ -35,41 +36,39 @@ public static class Program
         var p = new OptionSet()
         {
                 { "m|maxmem=", "Max committed memory usage in bytes (accepted suffixes: K, M, or G).",
-                    v => { session.MaxProcessMemory = ParseMemoryString(v); } },
+                    v => session.MaxProcessMemory = ParseMemoryString(v) },
                 { "maxjobmem=", "Max committed memory usage for all the processes in the job (accepted suffixes: K, M, or G).",
-                    v => { session.MaxJobMemory = ParseMemoryString(v); } },
+                    v => session.MaxJobMemory = ParseMemoryString(v) },
                 { "maxws=", "Max working set size in bytes (accepted suffixes: K, M, or G). Must be set with minws.",
-                    v => { session.MaxWorkingSetSize = ParseMemoryString(v); } },
+                    v => session.MaxWorkingSetSize = ParseMemoryString(v) },
                 { "minws=", "Min working set size in bytes (accepted suffixes: K, M, or G). Must be set with maxws.",
-                    v => { session.MinWorkingSetSize = ParseMemoryString(v); } },
+                    v => session.MinWorkingSetSize = ParseMemoryString(v) },
                 { "env=", "A text file with environment variables (each line in form: VAR=VAL).",
                     v => LoadCustomEnvironmentVariables(session, v) },
                 { "n|node=", "The preferred NUMA node for the process.",
                     v => session.NumaNode = ushort.Parse(v) },
                 { "c|cpu=", "If in hex (starts with 0x) it is treated as an affinity mask, otherwise it is a number of CPU cores assigned to your app. " +
                     "If you also provide the NUMA node, this setting will apply only to this node.",
-                    v => {
-                        if (v.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) {
-                            session.CpuAffinityMask = ulong.Parse(v[2..], NumberStyles.HexNumber);
-                        } else {
-                            session.CpuAffinityMask = CalculateAffinityMaskFromCpuCount(int.Parse(v));
-                        }
-                    }},
+                    v => session.CpuAffinityMask = v switch {
+                        var s when s.StartsWith("0x", StringComparison.OrdinalIgnoreCase) => ulong.Parse(s[2..], NumberStyles.HexNumber),
+                        var s  => CalculateAffinityMaskFromCpuCount(int.Parse(s))
+                    }
+                },
                 { "e|cpurate=", "The maximum CPU rate in % for the process. If you also set the affinity, " +
                     "the rate will apply only to the selected CPU cores. (Windows 8.1+)",
-                    v => { session.CpuMaxRate = ParseCpuRate(v); } },
+                    v => session.CpuMaxRate = ParseCpuRate(v) },
                 { "b|bandwidth=", "The maximum bandwidth (in bytes) for the process outgoing network traffic" +
                     " (accepted suffixes: K, M, or G). (Windows 10+)",
-                    v => { session.MaxBandwidth = ParseByteLength(v); } },
+                    v => session.MaxBandwidth = ParseByteLength(v) },
                 { "r|recursive", "Apply limits to child processes too (will wait for all processes to finish).",
-                    v => { session.PropagateOnChildProcesses = v != null; } },
-                { "newconsole", "Start the process in a new console window.", v => { session.SpawnNewConsoleWindow = v != null; } },
+                    v => session.PropagateOnChildProcesses = v != null },
+                { "newconsole", "Start the process in a new console window.", v => session.SpawnNewConsoleWindow = v != null },
                 { "nogui", "Hide Process Governor console window (set always when installed as debugger).",
-                    v => { nogui = v != null; } },
+                    v => nogui = v != null },
                 { "p|pid=", "Apply limits on an already running process (or processes)", v => pids = ParsePids(v) },
                 { "install", "Install procgov as a debugger for a specific process using Image File Executions. " +
                              "DO NOT USE this option if the process you want to control starts child instances of itself (for example, Chrome).",
-                    v => { registryOperation = RegistryOperation.INSTALL; } },
+                    v => registryOperation = RegistryOperation.INSTALL },
                 { "t|timeout=", "Kill the process (with -r, also all its children) if it does not finish within the specified time. " +
                                 "Add suffix to define the time unit. Valid suffixes are: ms, s, m, h.",
                     v => session.ClockTimeLimitInMilliseconds = ParseTimeStringToMilliseconds(v) },
@@ -79,10 +78,12 @@ public static class Program
                 { "job-utime=", "Kill the process (with -r, also all its children) if the total user-mode execution " +
                                "time exceed the specified value. Add suffix to define the time unit. Valid suffixes are: ms, s, m, h.",
                     v => session.JobUserTimeLimitInMilliseconds = ParseTimeStringToMilliseconds(v) },
-                { "uninstall", "Uninstall procgov for a specific process.", v => { registryOperation = RegistryOperation.UNINSTALL; } },
+                { "uninstall", "Uninstall procgov for a specific process.", v => registryOperation = RegistryOperation.UNINSTALL },
                 { "enable-privileges=", "Enables the specified privileges in the remote process. You may specify multiple privileges " +
                                "by splitting them with commas, for example, 'SeDebugPrivilege,SeLockMemoryPrivilege'",
                     v => session.Privileges = v.Split(',', StringSplitOptions.RemoveEmptyEntries) },
+                { "terminate-job-on-exit", "Terminates the job (and all its processes) when you stop procgov with Ctrl + C.",
+                    v => terminateJobOnExit = true },
                 { "debugger", "Internal - do not use.",
                     v => debug = v != null },
                 { "q|quiet", "Do not show procgov messages.", v => quiet = v != null },
@@ -119,6 +120,12 @@ public static class Program
             Console.Error.WriteLine("ERROR: {0}", ex.Message);
             Console.Error.WriteLine();
             showhelp = true;
+        }
+
+        if (terminateJobOnExit && nowait)
+        {
+            Console.Error.WriteLine("ERROR: --terminate-job-on-exit and --nowait cannot be used together.");
+            return 0xff;
         }
 
         if (session.MaxWorkingSetSize != session.MinWorkingSetSize && Math.Min(session.MaxWorkingSetSize, session.MinWorkingSetSize) == 0)
@@ -171,30 +178,42 @@ public static class Program
                 ShowLimits(session);
             }
 
-            var job = session switch
+            using var job = session switch
             {
                 _ when debug => ProcessModule.StartProcessUnderDebuggerAndAssignToJobObject(procargs, session),
                 _ when pids.Length == 1 => ProcessModule.AssignProcessToJobObject(pids[0], session),
                 _ when pids.Length > 1 => ProcessModule.AssignProcessesToJobObject(pids, session),
                 _ => ProcessModule.StartProcessAndAssignToJobObject(procargs, session)
             };
-            try
-            {
-                if (!quiet)
-                {
-                    if (!nowait)
-                    {
-                        Console.WriteLine("Press Ctrl-C to end execution without terminating the process.");
-                        Console.WriteLine();
-                    }
-                }
 
-                return nowait ? 0 : Win32JobModule.WaitForTheJobToComplete(job, cts.Token);
-            }
-            finally
+            if (nowait)
             {
-                job.Dispose();
+                return 0;
             }
+
+            if (!quiet)
+            {
+                if (terminateJobOnExit)
+                {
+                    Console.WriteLine("Press Ctrl-C to end execution and terminate the job.");
+                }
+                else
+                {
+                    Console.WriteLine("Press Ctrl-C to end execution without terminating the process.");
+                }
+                Console.WriteLine();
+            }
+
+            Win32JobModule.WaitForTheJobToComplete(job, cts.Token);
+            var exitCode = job.FirstProcessHandle is { } h && !h.IsInvalid ?
+                ProcessModule.GetProcessExitCode(h) : 0;
+
+            if (cts.Token.IsCancellationRequested && terminateJobOnExit)
+            {
+                Win32JobModule.TerminateJob(job, exitCode);
+            }
+
+            return (int)exitCode;
         }
         catch (Win32Exception ex)
         {

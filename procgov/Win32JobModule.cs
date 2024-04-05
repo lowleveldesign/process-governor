@@ -267,20 +267,15 @@ internal static class Win32JobModule
         }
     }
 
-    public static unsafe int WaitForTheJobToComplete(Win32Job job, CancellationToken ct)
+    public static unsafe void WaitForTheJobToComplete(Win32Job job, CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
         {
-            switch (PInvoke.WaitForSingleObject(job.WaitHandle, 200 /* ms */))
+            switch (PInvoke.WaitForSingleObject(job.Handle, 200 /* ms */))
             {
                 case WAIT_EVENT.WAIT_OBJECT_0:
                     logger.TraceInformation("Job or process got signaled.");
-                    if (job.ProcessHandle is { } h && !h.IsInvalid)
-                    {
-                        PInvoke.GetExitCodeProcess(h, out var exitCode);
-                        return (int)exitCode;
-                    }
-                    return 0;
+                    return;
                 case WAIT_EVENT.WAIT_FAILED:
                     throw new Win32Exception();
                 default:
@@ -293,13 +288,13 @@ internal static class Win32JobModule
                     if (jobBasicAcctInfo.ActiveProcesses == 0)
                     {
                         logger.TraceInformation("No active processes in the job - terminating.");
-                        return 0;
+                        return;
                     }
                     else if (job.IsTimedOut)
                     {
                         logger.TraceInformation("Clock time limit passed - terminating.");
                         PInvoke.TerminateJobObject(job.JobHandle, 1);
-                        return 0;
+                        return;
                     }
                     else
                     {
@@ -307,7 +302,10 @@ internal static class Win32JobModule
                     }
             }
         }
+    }
 
-        return 0;
+    public static void TerminateJob(Win32Job job, uint exitCode)
+    {
+        PInvoke.TerminateJobObject(job.JobHandle, exitCode);
     }
 }

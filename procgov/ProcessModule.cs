@@ -349,4 +349,10 @@ internal static class ProcessModule
 
         return envEntries.ToString();
     }
+
+    public static uint GetProcessExitCode(SafeHandle processHandle)
+    {
+        PInvoke.GetExitCodeProcess(processHandle, out var exitCode);
+        return exitCode;
+    }
 }

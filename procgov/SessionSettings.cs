@@ -31,7 +31,7 @@ public sealed class SessionSettings
 
     public bool PropagateOnChildProcesses { get; set; }
 
-    public string[] Privileges { get; set; } = new string[0];
+    public string[] Privileges { get; set; } = [];
 
     public Dictionary<string, string> AdditionalEnvironmentVars => additionalEnvironmentVars;
 }
