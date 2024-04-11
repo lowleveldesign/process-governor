@@ -2,8 +2,8 @@ name: release
 
 on: 
   push:
-    tags:
-      - '*'
+    tags-ignore:
+      - 'test-*'
 
 jobs:
   build:
@@ -20,7 +20,6 @@ jobs:
     - run: |
         Invoke-WebRequest -OutFile Update-AssemblyInfoVersionFiles.ps1 https://gist.githubusercontent.com/lowleveldesign/663de4e0d5a071f938e6f7c82d7ca9a0/raw/Update-AssemblyInfoVersionFiles.ps1
         ./Update-AssemblyInfoVersionFiles.ps1
-      shell: pwsh
 
     - run: dotnet test -c release
       working-directory: ./procgov-tests
@@ -39,10 +38,15 @@ jobs:
         Copy-Item -Path "procgov/bin/release/net8.0-windows/win-x64/publish/procgov.exe" -Destination "artifacts/procgov64.exe"
         Copy-Item -Path "procgov/bin/release/net8.0-windows/win-x64/publish/procgov.pdb" -Destination "artifacts/procgov64.pdb"
 
-    - uses: actions/upload-artifact@v4
+    - name: Zip binaries
+      run: |
+        Compress-Archive -Path "artifacts/*.exe", "artifacts/*.pdb" -DestinationPath "procgov.zip"
+
+    - uses: marvinpinto/action-automatic-releases@latest
       with:
-        name: procgov
-        path: artifacts/*
+        repo_token: "${{ secrets.WINGET_GH_TOKEN }}"
+        prerelease: true
+        files: procgov.zip
 
     - name: Copy the binary to Chocolatey path
       run: |
@@ -58,7 +62,6 @@ jobs:
         "" >> choco\tools\VERIFICATION.txt
         "## procgov64.exe" >> choco\tools\VERIFICATION.txt
         ./Print-FileHashes.ps1 -FilePath choco\tools\procgov64.exe >> choco\tools\VERIFICATION.txt
-      shell: pwsh
 
     - name: Build Chocolatey package
       run: choco pack
