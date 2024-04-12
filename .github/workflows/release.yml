@@ -48,32 +48,35 @@ jobs:
         prerelease: true
         files: procgov.zip
 
+    - name: Publish to winget
+      run: ./winget-publish.ps1
+
     - name: Copy the binary to Chocolatey path
       run: |
-          Copy-Item artifacts\procgov32.exe choco\tools
-          Copy-Item artifacts\procgov32.pdb choco\tools
-          Copy-Item artifacts\procgov64.exe choco\tools
-          Copy-Item artifacts\procgov64.pdb choco\tools
+          Copy-Item artifacts\procgov32.exe .choco\tools
+          Copy-Item artifacts\procgov32.pdb .choco\tools
+          Copy-Item artifacts\procgov64.exe .choco\tools
+          Copy-Item artifacts\procgov64.pdb .choco\tools
 
     - run: |
         Invoke-WebRequest -OutFile Print-FileHashes.ps1 https://gist.githubusercontent.com/lowleveldesign/f1afd42662ee8dabe07cf8cbfe25e6a1/raw/Print-FileHashes.ps1
-        "## procgov32.exe" >> choco\tools\VERIFICATION.txt
-        ./Print-FileHashes.ps1 -FilePath choco\tools\procgov32.exe >> choco\tools\VERIFICATION.txt
-        "" >> choco\tools\VERIFICATION.txt
-        "## procgov64.exe" >> choco\tools\VERIFICATION.txt
-        ./Print-FileHashes.ps1 -FilePath choco\tools\procgov64.exe >> choco\tools\VERIFICATION.txt
+        "## procgov32.exe" >> .choco\tools\VERIFICATION.txt
+        ./Print-FileHashes.ps1 -FilePath .choco\tools\procgov32.exe >> .choco\tools\VERIFICATION.txt
+        "" >> .choco\tools\VERIFICATION.txt
+        "## procgov64.exe" >> .choco\tools\VERIFICATION.txt
+        ./Print-FileHashes.ps1 -FilePath .choco\tools\procgov64.exe >> .choco\tools\VERIFICATION.txt
 
     - name: Build Chocolatey package
       run: choco pack
-      working-directory: choco
+      working-directory: .choco
      
     - uses: actions/upload-artifact@v4
       with:
         name: procgov-pkg
-        path: choco\procgov.*.nupkg
+        path: .choco\procgov.*.nupkg
 
     - name: Release Chocolatey package
       run: choco push $(Resolve-Path "procgov.*.nupkg") -s https://push.chocolatey.org/ -k "$env:CHOCO_KEY"
       env:
         CHOCO_KEY: ${{ secrets.CHOCO_KEY }}
-      working-directory: choco
+      working-directory: .choco

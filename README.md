@@ -24,10 +24,12 @@ This application allows you to set constraints on Windows processes. It uses [a 
 
 ## Installation
 
-You may download the latest version binaries from the [release page](https://github.com/lowleveldesign/process-governor/releases) or install it with [Chocolatey](https://chocolatey.org/):
+You may download the latest version binaries from the [release page](https://github.com/lowleveldesign/process-governor/releases) or install it with [Chocolatey](https://chocolatey.org/) or [winget](https://learn.microsoft.com/en-us/windows/package-manager/winget/):
 
-```
-> choco install procgov
+```shell
+choco install procgov
+# or
+winget install procgov
 ```
 
 :warning: Remember to use procgov32.exe with 32-bit apps and procgov64.exe with 64-bit ones.
