@@ -1,5 +1,4 @@
 ﻿using Microsoft.Win32;
-using NDesk.Options;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
@@ -26,81 +25,130 @@ public static class Program
     public static int Main(string[] args)
     {
         var procargs = new List<string>();
-        bool showhelp = false, nogui = false, debug = false, quiet = false, nowait = false,
+        bool showhelp = false, nogui = false, background = false, quiet = false, nowait = false,
             terminateJobOnExit = false;
         int[] pids = Array.Empty<int>();
         var registryOperation = RegistryOperation.NONE;
 
         var session = new SessionSettings();
 
-        var p = new OptionSet()
-        {
-                { "m|maxmem=", "Max committed memory usage in bytes (accepted suffixes: K, M, or G).",
-                    v => session.MaxProcessMemory = ParseMemoryString(v) },
-                { "maxjobmem=", "Max committed memory usage for all the processes in the job (accepted suffixes: K, M, or G).",
-                    v => session.MaxJobMemory = ParseMemoryString(v) },
-                { "maxws=", "Max working set size in bytes (accepted suffixes: K, M, or G). Must be set with minws.",
-                    v => session.MaxWorkingSetSize = ParseMemoryString(v) },
-                { "minws=", "Min working set size in bytes (accepted suffixes: K, M, or G). Must be set with maxws.",
-                    v => session.MinWorkingSetSize = ParseMemoryString(v) },
-                { "env=", "A text file with environment variables (each line in form: VAR=VAL).",
-                    v => LoadCustomEnvironmentVariables(session, v) },
-                { "n|node=", "The preferred NUMA node for the process.",
-                    v => session.NumaNode = ushort.Parse(v) },
-                { "c|cpu=", "If in hex (starts with 0x) it is treated as an affinity mask, otherwise it is a number of CPU cores assigned to your app. " +
-                    "If you also provide the NUMA node, this setting will apply only to this node.",
-                    v => session.CpuAffinityMask = v switch {
-                        var s when s.StartsWith("0x", StringComparison.OrdinalIgnoreCase) => ulong.Parse(s[2..], NumberStyles.HexNumber),
-                        var s  => CalculateAffinityMaskFromCpuCount(int.Parse(s))
-                    }
-                },
-                { "e|cpurate=", "The maximum CPU rate in % for the process. If you also set the affinity, " +
-                    "the rate will apply only to the selected CPU cores. (Windows 8.1+)",
-                    v => session.CpuMaxRate = ParseCpuRate(v) },
-                { "b|bandwidth=", "The maximum bandwidth (in bytes) for the process outgoing network traffic" +
-                    " (accepted suffixes: K, M, or G). (Windows 10+)",
-                    v => session.MaxBandwidth = ParseByteLength(v) },
-                { "r|recursive", "Apply limits to child processes too (will wait for all processes to finish).",
-                    v => session.PropagateOnChildProcesses = v != null },
-                { "newconsole", "Start the process in a new console window.", v => session.SpawnNewConsoleWindow = v != null },
-                { "nogui", "Hide Process Governor console window (set always when installed as debugger).",
-                    v => nogui = v != null },
-                { "p|pid=", "Apply limits on an already running process (or processes)", v => pids = ParsePids(v) },
-                { "install", "Install procgov as a debugger for a specific process using Image File Executions. " +
-                             "DO NOT USE this option if the process you want to control starts child instances of itself (for example, Chrome).",
-                    v => registryOperation = RegistryOperation.INSTALL },
-                { "t|timeout=", "Kill the process (with -r, also all its children) if it does not finish within the specified time. " +
-                                "Add suffix to define the time unit. Valid suffixes are: ms, s, m, h.",
-                    v => session.ClockTimeLimitInMilliseconds = ParseTimeStringToMilliseconds(v) },
-                { "process-utime=", "Kill the process (with -r, also applies to its children) if it exceeds the given " +
-                                "user-mode execution time. Add suffix to define the time unit. Valid suffixes are: ms, s, m, h.",
-                    v => session.ProcessUserTimeLimitInMilliseconds = ParseTimeStringToMilliseconds(v) },
-                { "job-utime=", "Kill the process (with -r, also all its children) if the total user-mode execution " +
-                               "time exceed the specified value. Add suffix to define the time unit. Valid suffixes are: ms, s, m, h.",
-                    v => session.JobUserTimeLimitInMilliseconds = ParseTimeStringToMilliseconds(v) },
-                { "uninstall", "Uninstall procgov for a specific process.", v => registryOperation = RegistryOperation.UNINSTALL },
-                { "enable-privileges=", "Enables the specified privileges in the remote process. You may specify multiple privileges " +
-                               "by splitting them with commas, for example, 'SeDebugPrivilege,SeLockMemoryPrivilege'",
-                    v => session.Privileges = v.Split(',', StringSplitOptions.RemoveEmptyEntries) },
-                { "terminate-job-on-exit", "Terminates the job (and all its processes) when you stop procgov with Ctrl + C.",
-                    v => terminateJobOnExit = true },
-                { "debugger", "Internal - do not use.",
-                    v => debug = v != null },
-                { "q|quiet", "Do not show procgov messages.", v => quiet = v != null },
-                { "nowait", "Does not wait for the target process(es) to exit.", v => nowait = v != null },
-                { "v|verbose", "Show verbose messages in the console.", v => {
-                    if (v != null)
-                    {
-                        Logger.Switch.Level = SourceLevels.Verbose;
-                    }
-                } },
-                { "h|help", "Show this message and exit", v => showhelp = v != null },
-                { "?", "Show this message and exit", v => showhelp = v != null }
-            };
-
         try
         {
-            procargs = p.Parse(args);
+            var parsedArgs = ParseArgs(["newconsole", "r", "recursive", "newconsole", "nogui", "install", "uninstall",
+            "terminate-job-on-exit", "background", "service", "q", "quiet", "nowait", "v", "verbose", "h", "?", "help"],
+                args);
+
+            List<string>? v;
+            if ((parsedArgs.TryGetValue("m", out v) || parsedArgs.TryGetValue("maxmem", out v)) && v.Count == 1)
+            {
+                session.MaxProcessMemory = ParseMemoryString(v[0]);
+            }
+            if (parsedArgs.TryGetValue("maxjobmem", out v) && v.Count == 1)
+            {
+                session.MaxJobMemory = ParseMemoryString(v[0]);
+            }
+            if (parsedArgs.TryGetValue("maxws", out v) && v.Count == 1)
+            {
+                session.MaxWorkingSetSize = ParseMemoryString(v[0]);
+            }
+            if (parsedArgs.TryGetValue("minws", out v) && v.Count == 1)
+            {
+                session.MinWorkingSetSize = ParseMemoryString(v[0]);
+            }
+            if (parsedArgs.TryGetValue("env", out v) && v.Count == 1)
+            {
+                LoadCustomEnvironmentVariables(session, v[0]);
+            }
+            if (parsedArgs.TryGetValue("n", out v) || parsedArgs.TryGetValue("node", out v) && v.Count == 1)
+            {
+                session.NumaNode = ushort.Parse(v);
+            }
+            if (parsedArgs.TryGetValue("c", out v) || parsedArgs.TryGetValue("cpu", out v) && v.Count == 1)
+            {
+                session.CpuAffinityMask = v switch
+                {
+                    var s when s.StartsWith("0x", StringComparison.OrdinalIgnoreCase) => ulong.Parse(s[2..], NumberStyles.HexNumber),
+                    var s => CalculateAffinityMaskFromCpuCount(int.Parse(s))
+                };
+            }
+            if (parsedArgs.TryGetValue("e", out v) || parsedArgs.TryGetValue("cpurate", out v) && v.Count == 1)
+            {
+                session.CpuMaxRate = ParseCpuRate(v);
+            }
+            if (parsedArgs.TryGetValue("b", out v) || parsedArgs.TryGetValue("bandwidth", out v) && v.Count == 1)
+            {
+                session.MaxBandwidth = ParseByteLength(v);
+            }
+            if (parsedArgs.ContainsKey("r") || parsedArgs.ContainsKey("recursive"))
+            {
+                session.PropagateOnChildProcesses = true;
+            }
+            if (parsedArgs.ContainsKey("newconsole"))
+            {
+                session.SpawnNewConsoleWindow = true;
+            }
+            if (parsedArgs.ContainsKey("nogui"))
+            {
+                nogui = true;
+            }
+            if (parsedArgs.TryGetValue("p", out v) || parsedArgs.TryGetValue("pid", out v) && v.Count == 1)
+            {
+                // FIXME: consider using pid mutliple times
+                pids = ParsePids(v[0]);
+            }
+            if (parsedArgs.TryGetValue("install", out v))
+            {
+                registryOperation = RegistryOperation.INSTALL;
+            }
+            if (parsedArgs.TryGetValue("t", out v) || parsedArgs.TryGetValue("timeout", out v) && v.Count == 1)
+            {
+                session.ClockTimeLimitInMilliseconds = ParseTimeStringToMilliseconds(v);
+            }
+            if (parsedArgs.TryGetValue("process-utime", out v) && v.Count == 1)
+            {
+                session.ProcessUserTimeLimitInMilliseconds = ParseTimeStringToMilliseconds(v);
+            }
+            if (parsedArgs.TryGetValue("job-utime", out v) && v.Count == 1)
+            {
+                session.JobUserTimeLimitInMilliseconds = ParseTimeStringToMilliseconds(v);
+            }
+            if (parsedArgs.ContainsKey("uninstall"))
+            {
+                registryOperation = RegistryOperation.UNINSTALL;
+            }
+            if (parsedArgs.TryGetValue("enable-privileges", out v) && v.Count == 1)
+            {
+                // FIXME: consider using enable-privilege mutliple times
+                session.Privileges = v[0].Split(',', StringSplitOptions.RemoveEmptyEntries);
+            }
+            if (parsedArgs.ContainsKey("terminate-job-on-exit"))
+            {
+                terminateJobOnExit = true;
+            }
+            if (parsedArgs.ContainsKey("background"))
+            {
+                background = true;
+            }
+            if (parsedArgs.ContainsKey("service"))
+            {
+                runAsService = true;
+            }
+            if (parsedArgs.ContainsKey("q") || parsedArgs.ContainsKey("quiet"))
+            {
+                quiet = true;
+            }
+            if (parsedArgs.ContainsKey("nowait"))
+            {
+                nowait = true;
+            }
+            if (parsedArgs.ContainsKey("v") || parsedArgs.ContainsKey("verbose"))
+            {
+                Logger.Switch.Level = SourceLevels.Verbose;
+            }
+            if (parsedArgs.ContainsKey("h") || parsedArgs.ContainsKey("?") || parsedArgs.ContainsKey("help"))
+            {
+                showhelp = true;
+            }
         }
         catch (OptionException ex)
         {
@@ -227,6 +275,53 @@ public static class Program
         }
     }
 
+    private static Dictionary<string, List<string>> ParseArgs(string[] flagNames, string[] rawArgs)
+    {
+        var args = rawArgs.SelectMany(arg => arg.Split(new[] { '=' }, StringSplitOptions.RemoveEmptyEntries)).ToArray();
+        bool IsFlag(string v) => Array.IndexOf(flagNames, v) >= 0;
+
+        var result = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        var lastOption = "";
+        var firstFreeArgPassed = false;
+
+        foreach (var arg in args)
+        {
+            if (!firstFreeArgPassed && arg.StartsWith("-", StringComparison.Ordinal))
+            {
+                if (arg == "--")
+                {
+                    lastOption = "";
+                    firstFreeArgPassed = true;
+                }
+                else if (arg.TrimStart('-') is var option && IsFlag(option))
+                {
+                    Debug.Assert(lastOption == "");
+                    result[option] = new();
+                }
+                else
+                {
+                    Debug.Assert(lastOption == "");
+                    lastOption = option;
+                }
+            }
+            else
+            {
+                // the logic is the same for options (lastOption) and free args
+                if (result.TryGetValue(lastOption, out var values))
+                {
+                    values.Add(arg);
+                }
+                else
+                {
+                    result[lastOption] = new List<string> { arg };
+                }
+                firstFreeArgPassed = lastOption == "";
+                lastOption = "";
+            }
+        }
+        return result;
+    }
+
     public static uint ParseTimeStringToMilliseconds(string v)
     {
         if (v.EndsWith("ms", StringComparison.OrdinalIgnoreCase))
@@ -341,27 +436,55 @@ public static class Program
     {
         Console.WriteLine("Process Governor v{0} - sets limits on processes",
             Assembly.GetExecutingAssembly()!.GetName()!.Version!.ToString());
-        Console.WriteLine("Copyright (C) 2023 Sebastian Solnica (lowleveldesign.org)");
+        Console.WriteLine("Copyright (C) 2024 Sebastian Solnica (lowleveldesign.org)");
         Console.WriteLine();
     }
 
-    static void ShowHelp(OptionSet p)
+    static void ShowHelp()
     {
-        Console.WriteLine("Usage: procgov [OPTIONS] args");
-        Console.WriteLine();
-        Console.WriteLine("Options:");
-        p.WriteOptionDescriptions(Console.Out);
-        Console.WriteLine();
-        Console.WriteLine("EXAMPLES:");
-        Console.WriteLine("Limit memory of a test.exe process to 200MB:");
-        Console.WriteLine("> procgov64 --maxmem 200M -- test.exe");
-        Console.WriteLine();
-        Console.WriteLine("Limit CPU usage of a test.exe process to first three CPU cores:");
-        Console.WriteLine("> procgov64 --cpu 3 -- test.exe -arg1 -arg2=val2");
-        Console.WriteLine();
-        Console.WriteLine("Always run a test.exe process only on the first three CPU cores:");
-        Console.WriteLine("> procgov64 --install --cpu 3 test.exe");
-        Console.WriteLine();
+        Console.WriteLine("""
+        Usage: procgov [OPTIONS] args
+
+        OPTIONS:
+
+            -m|--maxmem=        Max committed memory usage in bytes (accepted suffixes: K, M, or G).
+               --maxjobmem=     Max committed memory usage for all the processes in the job (accepted suffixes: K, M, or G).
+               --maxws=         Max working set size in bytes (accepted suffixes: K, M, or G). Must be set with minws.
+               --minws=         Min working set size in bytes (accepted suffixes: K, M, or G). Must be set with maxws.
+               --env=           A text file with environment variables (each line in form: VAR=VAL).
+            -n|--node=          The preferred NUMA node for the process.
+            -c|--cpu=           If in hex (starts with 0x) it is treated as an affinity mask, otherwise it is a number of CPU cores assigned to your app. If you also provide the NUMA node, this setting will apply only to this node.",
+            -e|--cpurate=       The maximum CPU rate in % for the process. If you also set the affinity, he rate will apply only to the selected CPU cores. (Windows 8.1+)
+            -b|--bandwidth=     The maximum bandwidth (in bytes) for the process outgoing network traffic (accepted suffixes: K, M, or G). (Windows 10+)
+            -r|--recursive      Apply limits to child processes too (will wait for all processes to finish).
+               --newconsole     Start the process in a new console window.
+               --nogui          Hide Process Governor console window (set always when installed as debugger).
+            -p|--pid=           Apply limits on an already running process (or processes)
+               --install        Install procgov as a service which monitors a specific process.
+            -t|--timeout=       Kill the process (with -r, also all its children) if it does not finish within the specified time. Add suffix to define the time unit. Valid suffixes are: ms, s, m, h.
+               --process-utime= Kill the process (with -r, also applies to its children) if it exceeds the given user-mode execution time. Add suffix to define the time unit. Valid suffixes are: ms, s, m, h.
+               --job-utime=     Kill the process (with -r, also all its children) if the total user-mode execution time exceed the specified value. Add suffix to define the time unit. Valid suffixes are: ms, s, m, h.
+               --uninstall      Uninstall procgov for a specific process.
+               --enable-privileges= Enables the specified privileges in the remote process. You may specify multiple privileges by splitting them with commas, for example, 'SeDebugPrivilege,SeLockMemoryPrivilege'
+               --terminate-job-on-exit Terminates the job (and all its processes) when you stop procgov with Ctrl + C.
+            -q|--quiet          Do not show procgov messages.
+               --nowait         Does not wait for the target process(es) to exit.
+            -v|--verbose        Show verbose messages in the console.
+            -h|--help           Show this message and exit.
+            -?                  Show this message and exit.
+
+
+        EXAMPLES:
+
+        Limit memory of a test.exe process to 200MB:
+        > procgov64 --maxmem 200M -- test.exe
+
+        Limit CPU usage of a test.exe process to first three CPU cores:
+        > procgov64 --cpu 3 -- test.exe -arg1 -arg2=val2
+        
+        Always run a test.exe process only on the first three CPU cores:
+        > procgov64 --install --cpu 3 test.exe
+        """);
     }
 
     static void ShowLimits(SessionSettings session)
