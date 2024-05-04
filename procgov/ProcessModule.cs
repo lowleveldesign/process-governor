@@ -1,326 +1,147 @@
-using System.Text;
-using System.Diagnostics;
-using Windows.Win32;
-using Windows.Win32.System.Threading;
 using Microsoft.Win32.SafeHandles;
+using System.ComponentModel;
 using System.Runtime.InteropServices;
+using Windows.Win32;
+using Windows.Win32.Foundation;
+using Windows.Win32.System.Threading;
+using Windows.Win32.System.Memory;
+using Windows.Win32.System.ProcessStatus;
+using Windows.Win32.System.SystemServices;
+using Windows.Win32.System.Diagnostics.Debug;
+using Windows.Wdk.System.Threading;
+
+using PInvokeWdk = Windows.Wdk.PInvoke;
+
+using System.Diagnostics;
+
 using static ProcessGovernor.NtApi;
+using System.Text;
 
 namespace ProcessGovernor;
 
-internal static class ProcessModule
+sealed class Win32Process(SafeHandle processHandle, uint processId) : IDisposable
 {
-    private const string JobNameEnvironmentVariable = "PROCGOV_JOB";
+    public SafeHandle Handle => processHandle;
 
-    private static readonly TraceSource logger = Program.Logger;
+    public uint Id => processId;
 
-    public static Win32Job AssignProcessToJobObject(int pid, SessionSettings session)
+    public void Dispose()
     {
-        var currentProcessId = (uint)Environment.ProcessId;
-        using var currentProcessHandle = PInvoke.GetCurrentProcess_SafeHandle();
-        var dbgpriv = AccountPrivilegeModule.EnablePrivileges(currentProcessId, currentProcessHandle, new[] { "SeDebugPrivilege" },
-                        TraceEventType.Information);
-
-        try
-        {
-            using var targetProcessHandle = CheckWin32Result(PInvoke.OpenProcess_SafeHandle(PROCESS_ACCESS_RIGHTS.PROCESS_QUERY_INFORMATION |
-                PROCESS_ACCESS_RIGHTS.PROCESS_SET_QUOTA | PROCESS_ACCESS_RIGHTS.PROCESS_DUP_HANDLE | PROCESS_ACCESS_RIGHTS.PROCESS_TERMINATE |
-                PROCESS_ACCESS_RIGHTS.PROCESS_VM_READ, false, (uint)pid));
-
-            if (!IsRemoteProcessTheSameBitness(targetProcessHandle))
-            {
-                throw new ArgumentException($"The target process has different bitness than procgov. Please use " +
-                    "procgov32 for 32-bit processes and procgov64 for 64-bit processes");
-            }
-
-            Win32Job OpenOrCreateJob()
-            {
-                if (GetProcessEnvironmentVariable(targetProcessHandle, JobNameEnvironmentVariable) is string jobName &&
-                    Win32JobModule.TryOpen(jobName, out var jobHandle) &&
-                    CheckWin32Result(PInvoke.IsProcessInJob(targetProcessHandle, jobHandle, out var jobNameMatches)) && jobNameMatches)
-                {
-                    SetProcessEnvironmentVariables(pid, session.AdditionalEnvironmentVars);
-                    return new Win32Job(jobHandle, jobName, null, session.ClockTimeLimitInMilliseconds);
-                }
-                else
-                {
-                    jobName = GetNewJobName();
-                    session.AdditionalEnvironmentVars.Add(JobNameEnvironmentVariable, jobName);
-                    SetProcessEnvironmentVariables(pid, session.AdditionalEnvironmentVars);
-
-                    return Win32JobModule.CreateJobObjectAndAssignProcess(targetProcessHandle, jobName,
-                        session.PropagateOnChildProcesses, session.ClockTimeLimitInMilliseconds);
-                }
-            }
-
-            var job = OpenOrCreateJob();
-            Debug.Assert(job != null);
-            Win32JobModule.SetLimits(job, session, GetSystemOrProcessorGroupAffinity(targetProcessHandle, session));
-
-            AccountPrivilegeModule.EnablePrivileges((uint)pid, targetProcessHandle, session.Privileges, TraceEventType.Error);
-
-            return job;
-        }
-        finally
-        {
-            AccountPrivilegeModule.RestorePrivileges(currentProcessId, currentProcessHandle, dbgpriv, TraceEventType.Information);
-        }
+        processHandle.Dispose();
     }
+}
 
-    public static Win32Job AssignProcessesToJobObject(int[] pids, SessionSettings session)
-    {
-        static bool TryOpenProcGovJob(SafeHandle processHandle, out SafeHandle jobHandle, out string jobName)
-        {
-            bool found;
-            if (GetProcessEnvironmentVariable(processHandle, JobNameEnvironmentVariable) is string name)
-            {
-                if (Win32JobModule.TryOpen(name, out var handle) &&
-                    CheckWin32Result(PInvoke.IsProcessInJob(processHandle, handle, out var jobNameMatches)) && jobNameMatches)
-                {
-                    jobName = name;
-                    jobHandle = handle;
-                    found = true;
-                }
-                else
-                {
-                    handle.Dispose();
-
-                    found = false;
-                    jobName = "";
-                    jobHandle = new SafeFileHandle();
-                }
-            }
-            else
-            {
-                found = false;
-                jobName = "";
-                jobHandle = new SafeFileHandle();
-            }
-
-            return found;
-        }
-
-        void AssignProcessToExistingJobObject(int processId, Win32Job job, bool checkIfAlreadyAssigned)
-        {
-            using var processHandle = CheckWin32Result(PInvoke.OpenProcess_SafeHandle(PROCESS_ACCESS_RIGHTS.PROCESS_QUERY_INFORMATION |
-               PROCESS_ACCESS_RIGHTS.PROCESS_SET_QUOTA | PROCESS_ACCESS_RIGHTS.PROCESS_DUP_HANDLE | PROCESS_ACCESS_RIGHTS.PROCESS_TERMINATE |
-               PROCESS_ACCESS_RIGHTS.PROCESS_VM_READ, false, (uint)processId));
-
-            if (!IsRemoteProcessTheSameBitness(processHandle))
-            {
-                logger.TraceEvent(TraceEventType.Error, 0, $"Process {processId} bitness does not match prcogov bitness. Skipping.");
-                return;
-            }
-
-            if (checkIfAlreadyAssigned && TryOpenProcGovJob(processHandle, out var processJobHandle, out var jobName))
-            {
-                processJobHandle.Dispose();
-                if (jobName == job.JobName)
-                {
-                    logger.TraceEvent(TraceEventType.Verbose, 0, $"Process {processId} already assigned to job '{jobName}'.");
-                    SetProcessEnvironmentVariables(processId, session.AdditionalEnvironmentVars);
-
-                    AccountPrivilegeModule.EnablePrivileges((uint)processId, processHandle, session.Privileges, TraceEventType.Error);
-                }
-                else
-                {
-                    logger.TraceEvent(TraceEventType.Warning, 0,
-                        $"Process {processId} assigned to a different procgov job ('{jobName}'). Skipping.");
-                }
-            }
-            else
-            {
-                session.AdditionalEnvironmentVars[JobNameEnvironmentVariable] = job.JobName;
-                SetProcessEnvironmentVariables(processId, session.AdditionalEnvironmentVars);
-
-                logger.TraceEvent(TraceEventType.Verbose, 0, $"Assigning process {processId} to job '{job.JobName}'");
-                Win32JobModule.AssignProcess(job, processHandle, session.PropagateOnChildProcesses);
-
-                AccountPrivilegeModule.EnablePrivileges((uint)processId, processHandle, session.Privileges, TraceEventType.Error);
-            }
-        }
-
-        var currentProcessId = (uint)Environment.ProcessId;
-        using var currentProcessHandle = PInvoke.GetCurrentProcess_SafeHandle();
-        var dbgpriv = AccountPrivilegeModule.EnablePrivileges(currentProcessId, currentProcessHandle, new[] { "SeDebugPrivilege" },
-                        TraceEventType.Information);
-
-        try
-        {
-            Win32Job? job = null;
-
-            // firstly, we need to check if any of the processes hasn't been already assigned to a procgov job
-            for (int i = 0; i < pids.Length && job is null; i++)
-            {
-                var jobProcessId = pids[i];
-
-                using var jobProcessHandle = CheckWin32Result(PInvoke.OpenProcess_SafeHandle(
-                    PROCESS_ACCESS_RIGHTS.PROCESS_QUERY_INFORMATION | PROCESS_ACCESS_RIGHTS.PROCESS_VM_READ, false, (uint)jobProcessId));
-
-                if (!IsRemoteProcessTheSameBitness(jobProcessHandle))
-                {
-                    logger.TraceEvent(TraceEventType.Error, 0, $"Process {jobProcessId} bitness does not match prcogov bitness. Skipping.");
-                    continue;
-                }
-
-                if (TryOpenProcGovJob(jobProcessHandle, out var jobHandle, out var jobName))
-                {
-                    // we need to update variables and priviles in the 'job process' manually as we
-                    // won't be assigning it to the job to which it is already assigned
-                    SetProcessEnvironmentVariables(jobProcessId, session.AdditionalEnvironmentVars);
-                    AccountPrivilegeModule.EnablePrivileges((uint)jobProcessId, jobProcessHandle, session.Privileges, TraceEventType.Error);
-
-                    job = new Win32Job(jobHandle, jobName, null, session.ClockTimeLimitInMilliseconds);
-
-                    logger.TraceEvent(TraceEventType.Verbose, 0,
-                        $"Procgov job already exists ('{jobName}') for process {jobProcessId} and we will use it for other processes.");
-
-                    foreach (var targetProcessId in pids.Where(pid => pid != jobProcessId))
-                    {
-                        AssignProcessToExistingJobObject(targetProcessId, job, true);
-                    }
-                }
-            }
-
-            if (job is null)
-            {
-                job = Win32JobModule.CreateJobObject(GetNewJobName(), session.ClockTimeLimitInMilliseconds);
-                logger.TraceEvent(TraceEventType.Verbose, 0, $"All processes will be assigned to a newly created job ({job.JobName}).");
-
-                foreach (var targetProcessId in pids)
-                {
-                    AssignProcessToExistingJobObject(targetProcessId, job, false);
-                }
-            }
-
-            Debug.Assert(job is not null);
-            Win32JobModule.SetLimits(job, session, GetSystemOrProcessorGroupAffinity(currentProcessHandle, session));
-
-            return job;
-        }
-        finally
-        {
-            AccountPrivilegeModule.RestorePrivileges(currentProcessId, currentProcessHandle, dbgpriv, TraceEventType.Information);
-        }
-    }
-
-    public static unsafe Win32Job StartProcessAndAssignToJobObject(
-        IList<string> procargs, SessionSettings session)
+static class ProcessModule
+{
+    public static unsafe (Win32Process Process, SafeHandle MainThreadHandle) CreateSuspendedProcess(
+        IEnumerable<string> procArgs, bool newConsole, Dictionary<string, string> additionalEnvironmentVars)
     {
         var pi = new PROCESS_INFORMATION();
         var si = new STARTUPINFOW();
         var processCreationFlags = PROCESS_CREATION_FLAGS.CREATE_UNICODE_ENVIRONMENT | PROCESS_CREATION_FLAGS.CREATE_SUSPENDED;
-        if (session.SpawnNewConsoleWindow)
+        if (newConsole)
         {
             processCreationFlags |= PROCESS_CREATION_FLAGS.CREATE_NEW_CONSOLE;
         }
 
-        var jobName = $"procgov-{Guid.NewGuid():D}";
-        session.AdditionalEnvironmentVars.Add(JobNameEnvironmentVariable, jobName);
+        var cmdline = (string.Join(" ", procArgs.Select((string s) => s.Contains(' ') ? "\"" + s + "\"" : s)) + '\0').ToCharArray();
 
-        fixed (char* penv = GetEnvironmentString(session.AdditionalEnvironmentVars))
+        fixed (char* penv = GetEnvironmentString(additionalEnvironmentVars))
+        fixed (char* cmdlinePtr = cmdline)
         {
-            var args = (string.Join(" ", procargs.Select((string s) => s.Contains(' ') ? "\"" + s + "\"" : s)) + '\0').ToCharArray();
-            fixed (char* pargs = args)
-            {
-                var argsSpan = new Span<char>(pargs, args.Length);
-                CheckWin32Result(PInvoke.CreateProcess(null, ref argsSpan, null, null, false, processCreationFlags,
-                    penv, null, si, out pi));
-            }
+            CheckWin32Result(PInvoke.CreateProcess(null, new PWSTR(cmdlinePtr), null, null, false,
+                processCreationFlags, penv, null, &si, &pi));
         }
 
-        var processHandle = new SafeFileHandle(pi.hProcess, true);
+        return (new Win32Process(new SafeFileHandle(pi.hProcess, true), pi.dwProcessId), new SafeFileHandle(pi.hThread, true));
+
+    }
+
+    public unsafe static (Win32Process Process, SafeHandle MainThreadHandle) CreateSuspendedProcessWithJobAssigned(
+        IEnumerable<string> procArgs, bool newConsole, Dictionary<string, string> additionalEnvironmentVars, SafeHandle jobHandle)
+    {
+        var procThreadAttrList = new LPPROC_THREAD_ATTRIBUTE_LIST();
+
+        nuint procThreadAttrListSize = 0;
+        if (!PInvoke.InitializeProcThreadAttributeList(procThreadAttrList, 1, 0, &procThreadAttrListSize) &&
+            (Marshal.GetLastWin32Error() is var err && err != (int)WIN32_ERROR.ERROR_INSUFFICIENT_BUFFER))
+        {
+            throw new Win32Exception(err);
+        }
+
+        var procThreadAttrListPtr = (void*)Marshal.AllocHGlobal((nint)procThreadAttrListSize);
         try
         {
-            var job = Win32JobModule.CreateJobObjectAndAssignProcess(processHandle, jobName, session.PropagateOnChildProcesses,
-                        session.ClockTimeLimitInMilliseconds);
-            Win32JobModule.SetLimits(job, session, GetSystemOrProcessorGroupAffinity(processHandle, session));
+            procThreadAttrList = new LPPROC_THREAD_ATTRIBUTE_LIST(procThreadAttrListPtr);
+            if (!PInvoke.InitializeProcThreadAttributeList(procThreadAttrList, 1, 0, &procThreadAttrListSize))
+            {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+            try
+            {
+                var rawJobHandle = jobHandle.DangerousGetHandle();
+                if (!PInvoke.UpdateProcThreadAttribute(procThreadAttrList, 0, PInvoke.PROC_THREAD_ATTRIBUTE_JOB_LIST, &rawJobHandle,
+                        (nuint)Marshal.SizeOf(rawJobHandle), null, (nuint*)null))
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                }
 
-            AccountPrivilegeModule.EnablePrivileges(pi.dwProcessId, processHandle, session.Privileges, TraceEventType.Error);
+                var startupInfo = new STARTUPINFOEXW()
+                {
+                    StartupInfo = new STARTUPINFOW() { cb = (uint)sizeof(STARTUPINFOEXW) },
+                    lpAttributeList = procThreadAttrList
+                };
+                var processCreationFlags = PROCESS_CREATION_FLAGS.EXTENDED_STARTUPINFO_PRESENT | 
+                    PROCESS_CREATION_FLAGS.CREATE_UNICODE_ENVIRONMENT | PROCESS_CREATION_FLAGS.CREATE_SUSPENDED;
+                if (newConsole)
+                {
+                    processCreationFlags |= PROCESS_CREATION_FLAGS.CREATE_NEW_CONSOLE;
+                }
 
-            CheckWin32Result(PInvoke.ResumeThread(pi.hThread));
+                var processInfo = new PROCESS_INFORMATION();
 
-            return job;
-        }
-        catch
-        {
-            PInvoke.TerminateProcess(processHandle, 1);
-            throw;
+                var cmdline = (string.Join(" ", procArgs.Select((string s) => s.Contains(' ') ? "\"" + s + "\"" : s)) + '\0').ToCharArray();
+
+                fixed (char* penv = GetEnvironmentString(additionalEnvironmentVars))
+                fixed (char* cmdlinePtr = cmdline)
+                {
+                    if (!PInvoke.CreateProcess(null, new PWSTR(cmdlinePtr), null, null, true, processCreationFlags, null, null, 
+                        (STARTUPINFOW*)&startupInfo, &processInfo))
+                    {
+                        throw new Win32Exception(Marshal.GetLastPInvokeError(), $"{nameof(PInvoke.CreateProcess)} failed.");
+                    }
+                }
+
+                return (new Win32Process(new SafeFileHandle(processInfo.hProcess, true), processInfo.dwProcessId), 
+                    new SafeFileHandle(processInfo.hThread, true));
+            }
+            finally
+            {
+                PInvoke.DeleteProcThreadAttributeList(procThreadAttrList);
+            }
         }
         finally
         {
-            PInvoke.CloseHandle(pi.hThread);
+            Marshal.FreeHGlobal((nint)procThreadAttrListPtr);
         }
     }
 
-    public static unsafe Win32Job StartProcessUnderDebuggerAndAssignToJobObject(
-        IList<string> procargs, SessionSettings session)
+    public static Win32Process OpenProcess(uint processId, bool allowInjections)
     {
-        var pi = new PROCESS_INFORMATION();
-        var si = new STARTUPINFOW();
-        var processCreationFlags = PROCESS_CREATION_FLAGS.CREATE_UNICODE_ENVIRONMENT |
-                                   PROCESS_CREATION_FLAGS.DEBUG_ONLY_THIS_PROCESS;
-        if (session.SpawnNewConsoleWindow)
-        {
-            processCreationFlags |= PROCESS_CREATION_FLAGS.CREATE_NEW_CONSOLE;
-        }
+        const PROCESS_ACCESS_RIGHTS RequiredJobAssignmentAccessRights =
+            PROCESS_ACCESS_RIGHTS.PROCESS_QUERY_INFORMATION | PROCESS_ACCESS_RIGHTS.PROCESS_SET_QUOTA |
+            PROCESS_ACCESS_RIGHTS.PROCESS_TERMINATE | PROCESS_ACCESS_RIGHTS.PROCESS_VM_READ;
+        const PROCESS_ACCESS_RIGHTS RequiredInjectionAccessRights = PROCESS_ACCESS_RIGHTS.PROCESS_CREATE_THREAD |
+            PROCESS_ACCESS_RIGHTS.PROCESS_VM_OPERATION | PROCESS_ACCESS_RIGHTS.PROCESS_VM_WRITE;
 
-        var jobName = GetNewJobName();
-        session.AdditionalEnvironmentVars.Add(JobNameEnvironmentVariable, jobName);
+        var processHandle = CheckWin32Result(PInvoke.OpenProcess_SafeHandle(allowInjections ?
+            RequiredJobAssignmentAccessRights | RequiredInjectionAccessRights :
+            RequiredJobAssignmentAccessRights, false, processId));
 
-        fixed (char* penv = GetEnvironmentString(session.AdditionalEnvironmentVars))
-        {
-            var args = (string.Join(" ", procargs.Select((string s) => s.Contains(' ') ? "\"" + s + "\"" : s)) + '\0').ToCharArray();
-            fixed (char* pargs = args)
-            {
-                var argsSpan = new Span<char>(pargs, args.Length);
-                CheckWin32Result(PInvoke.CreateProcess(null, ref argsSpan, null, null, false,
-                    processCreationFlags, penv, null, si, out pi));
-            }
-        }
-
-        var processHandle = new SafeFileHandle(pi.hProcess, true);
-        try
-        {
-            CheckWin32Result(PInvoke.DebugSetProcessKillOnExit(false));
-
-            var job = Win32JobModule.CreateJobObjectAndAssignProcess(processHandle, jobName, session.PropagateOnChildProcesses,
-                        session.ClockTimeLimitInMilliseconds);
-            Win32JobModule.SetLimits(job, session, GetSystemOrProcessorGroupAffinity(processHandle, session));
-
-            AccountPrivilegeModule.EnablePrivileges(pi.dwProcessId, processHandle, session.Privileges, TraceEventType.Error);
-
-            // resume process main thread by detaching from the debuggee
-            CheckWin32Result(PInvoke.DebugActiveProcessStop(pi.dwProcessId));
-
-            return job;
-        }
-        finally
-        {
-            PInvoke.CloseHandle(pi.hThread);
-        }
+        return new(processHandle, processId);
     }
 
-    private static ulong GetSystemOrProcessorGroupAffinity(SafeHandle processHandle, SessionSettings session)
-    {
-        CheckWin32Result(PInvoke.GetProcessAffinityMask(processHandle, out _, out var sysaff));
-        if (sysaff == 0 && (session.CpuAffinityMask != 0 || session.NumaNode != 0xffff))
-        {
-            logger.TraceEvent(TraceEventType.Error, 0, "The process belongs to more than 1 processor group. " +
-                "Procgov is not able to set the process affinity.");
-            session.CpuAffinityMask = 0;
-            session.NumaNode = 0xffff;
-        }
-
-        return (ulong)sysaff;
-    }
-
-    private static string GetNewJobName()
-    {
-        return $"procgov-{Guid.NewGuid():D}";
-    }
-
-    private static string? GetEnvironmentString(IDictionary<string, string> additionalEnvironmentVars)
+    static string? GetEnvironmentString(Dictionary<string, string> additionalEnvironmentVars)
     {
         if (additionalEnvironmentVars.Count == 0)
         {
@@ -350,9 +171,368 @@ internal static class ProcessModule
         return envEntries.ToString();
     }
 
-    public static uint GetProcessExitCode(SafeHandle processHandle)
+    public static string? GetProcessEnvironmentVariable(SafeHandle processHandle, string name, int maxAcceptableLength = 1024)
     {
-        PInvoke.GetExitCodeProcess(processHandle, out var exitCode);
-        return exitCode;
+        unsafe
+        {
+            bool isWow64 = IsProcessWow64(processHandle);
+
+            var kernel32BaseAddr = GetModuleHandle(processHandle, isWow64, "kernel32.dll");
+            var fnGetEnvironmentVariableW = (nint)GetModuleExportRva(processHandle, isWow64, kernel32BaseAddr, "GetEnvironmentVariableW");
+
+            var ntdllHandle = GetModuleHandle(processHandle, isWow64, "ntdll.dll");
+            var fnRtlExitUserThread = GetModuleExportRva(processHandle, isWow64, ntdllHandle, "RtlExitUserThread");
+            var remoteThreadStart = ntdllHandle + (nint)fnRtlExitUserThread;
+
+            var processRawHandle = processHandle.DangerousGetHandle();
+            if (RtlCreateUserThread(processRawHandle, nint.Zero, true, 0, 0, 0, remoteThreadStart,
+                 nint.Zero, out var remoteThreadHandle, out _) is var status && status != 0)
+            {
+                throw new Win32Exception((int)PInvoke.RtlNtStatusToDosError(new NTSTATUS(status)));
+            }
+
+            QueueApcThread queueApcThreadFunc = isWow64 ? RtlQueueApcWow64Thread : NtQueueApcThread;
+
+            try
+            {
+                nuint valueBufferSize = (uint)maxAcceptableLength * sizeof(char);
+
+                nuint allocLength = (nuint)name.Length * sizeof(char) + sizeof(char) /* null */ + valueBufferSize;
+                var allocAddr = PInvoke.VirtualAllocEx(processHandle, null, allocLength,
+                    VIRTUAL_ALLOCATION_TYPE.MEM_RESERVE | VIRTUAL_ALLOCATION_TYPE.MEM_COMMIT, PAGE_PROTECTION_FLAGS.PAGE_READWRITE);
+                if (allocAddr != null)
+                {
+                    try
+                    {
+                        // VirtualAllocEx initializes memory to 0 so we don't need to write the null terminator
+                        var currAddr = (byte*)allocAddr;
+                        nint nameAddr = (nint)currAddr;
+                        fixed (void* namePtr = name)
+                        {
+                            var lengthInBytes = (nuint)name.Length * sizeof(char);
+                            CheckWin32Result(PInvoke.WriteProcessMemory(processHandle, currAddr, namePtr, lengthInBytes, null));
+                            currAddr += lengthInBytes + sizeof(char); // + null terminator
+                        }
+                        nint valueAddr = (nint)currAddr;
+
+                        status = queueApcThreadFunc(remoteThreadHandle, kernel32BaseAddr + fnGetEnvironmentVariableW,
+                            nameAddr, valueAddr, maxAcceptableLength);
+                        if (status != 0)
+                        {
+                            throw new Win32Exception((int)PInvoke.RtlNtStatusToDosError(new NTSTATUS(status)));
+                        }
+
+                        // APC is the first thing the new thread executes when resumed
+                        if (PInvoke.ResumeThread((HANDLE)remoteThreadHandle) < 0)
+                        {
+                            throw new Win32Exception(Marshal.GetLastWin32Error());
+                        }
+
+                        if (PInvoke.WaitForSingleObject((HANDLE)remoteThreadHandle, 5000) is var err && err == WAIT_EVENT.WAIT_TIMEOUT)
+                        {
+                            throw new Win32Exception((int)WIN32_ERROR.ERROR_TIMEOUT);
+                        }
+                        else if (err == WAIT_EVENT.WAIT_FAILED)
+                        {
+                            throw new Win32Exception(Marshal.GetLastWin32Error());
+                        }
+
+                        var valueBufferAddr = NativeMemory.AllocZeroed(valueBufferSize + sizeof(char) /* null */);
+                        try
+                        {
+                            CheckWin32Result(PInvoke.ReadProcessMemory(processHandle, (void*)valueAddr,
+                                valueBufferAddr, valueBufferSize, null));
+                            return Marshal.PtrToStringUni((nint)valueBufferAddr);
+                        }
+                        finally
+                        {
+                            NativeMemory.Free(valueBufferAddr);
+                        }
+                    }
+                    finally
+                    {
+                        PInvoke.VirtualFreeEx(processHandle, allocAddr, 0, VIRTUAL_FREE_TYPE.MEM_RELEASE);
+                    }
+                }
+                else
+                {
+                    throw new Win32Exception();
+                }
+            }
+            finally
+            {
+                PInvoke.CloseHandle((HANDLE)remoteThreadHandle);
+            }
+        }
+    }
+
+    public static void SetProcessEnvironmentVariables(SafeHandle processHandle, Dictionary<string, string> variables)
+    {
+        if (variables.Count == 0)
+        {
+            return;
+        }
+
+        unsafe
+        {
+            bool isWow64 = IsProcessWow64(processHandle);
+
+            var kernel32BaseAddr = GetModuleHandle(processHandle, isWow64, "kernel32.dll");
+            var fnSetEnvironmentVariableW = (nint)GetModuleExportRva(processHandle, isWow64, kernel32BaseAddr, "SetEnvironmentVariableW");
+
+            var ntdllHandle = GetModuleHandle(processHandle, isWow64, "ntdll.dll");
+            var fnRtlExitUserThread = GetModuleExportRva(processHandle, isWow64, ntdllHandle, "RtlExitUserThread");
+            var remoteThreadStart = ntdllHandle + (nint)fnRtlExitUserThread;
+
+            var processRawHandle = processHandle.DangerousGetHandle();
+            if (RtlCreateUserThread(processRawHandle, nint.Zero, true, 0, 0, 0, remoteThreadStart,
+                 nint.Zero, out var remoteThreadHandle, out _) is var status && status != 0)
+            {
+                throw new Win32Exception((int)PInvoke.RtlNtStatusToDosError(new NTSTATUS(status)));
+            }
+
+            QueueApcThread queueApcThreadFunc = isWow64 ? RtlQueueApcWow64Thread : NtQueueApcThread;
+
+            try
+            {
+                nuint allocLength = (nuint)variables.Select(kv => kv.Key.Length + kv.Value.Length + 2).Sum() * sizeof(char); // + 2 for null terminators
+                var allocAddr = PInvoke.VirtualAllocEx(processHandle, null, allocLength,
+                    VIRTUAL_ALLOCATION_TYPE.MEM_RESERVE | VIRTUAL_ALLOCATION_TYPE.MEM_COMMIT, PAGE_PROTECTION_FLAGS.PAGE_READWRITE);
+                if (allocAddr != null)
+                {
+                    try
+                    {
+                        // VirtualAllocEx initializes memory to 0 so we don't need to write the null terminator
+                        var currAddr = (byte*)allocAddr;
+                        foreach (var vrb in variables)
+                        {
+                            nint nameAddr = (nint)currAddr;
+                            fixed (void* namePtr = vrb.Key)
+                            {
+                                var lengthInBytes = (nuint)vrb.Key.Length * sizeof(char);
+                                CheckWin32Result(PInvoke.WriteProcessMemory(processHandle, currAddr, namePtr, lengthInBytes, null));
+                                currAddr += lengthInBytes + sizeof(char); // + null terminator
+                            }
+
+                            nint valueAddr = (nint)currAddr;
+                            fixed (void* valuePtr = vrb.Value)
+                            {
+                                var lengthInBytes = (nuint)vrb.Value.Length * sizeof(char);
+                                CheckWin32Result(PInvoke.WriteProcessMemory(processHandle, currAddr, valuePtr, lengthInBytes, null));
+                                currAddr += lengthInBytes + sizeof(char); // + null terminator
+                            }
+
+                            status = queueApcThreadFunc(remoteThreadHandle, kernel32BaseAddr + fnSetEnvironmentVariableW,
+                                nameAddr, valueAddr, 0);
+                            if (status != 0)
+                            {
+                                throw new Win32Exception((int)PInvoke.RtlNtStatusToDosError(new NTSTATUS(status)));
+                            }
+                        }
+
+                        // APC is the first thing the new thread executes when resumed
+                        if (PInvoke.ResumeThread((HANDLE)remoteThreadHandle) < 0)
+                        {
+                            throw new Win32Exception(Marshal.GetLastWin32Error());
+                        }
+
+                        if (PInvoke.WaitForSingleObject((HANDLE)remoteThreadHandle, 5000) is var err && err == WAIT_EVENT.WAIT_TIMEOUT)
+                        {
+                            throw new Win32Exception((int)WIN32_ERROR.ERROR_TIMEOUT);
+                        }
+                        else if (err == WAIT_EVENT.WAIT_FAILED)
+                        {
+                            throw new Win32Exception(Marshal.GetLastWin32Error());
+                        }
+                    }
+                    finally
+                    {
+                        PInvoke.VirtualFreeEx(processHandle, allocAddr, 0, VIRTUAL_FREE_TYPE.MEM_RELEASE);
+                    }
+
+                }
+                else
+                {
+                    throw new Win32Exception();
+                }
+            }
+            finally
+            {
+                PInvoke.CloseHandle((HANDLE)remoteThreadHandle);
+            }
+        }
+    }
+
+    static unsafe HMODULE GetModuleHandle(SafeHandle processHandle, bool isWow64, string moduleName)
+    {
+        const uint MaxModulesNumber = 256;
+
+        var moduleHandles = stackalloc HMODULE[(int)MaxModulesNumber];
+        uint cb = MaxModulesNumber * (uint)Marshal.SizeOf<HMODULE>();
+        uint cbNeeded = 0;
+
+        var processRawHandle = (HANDLE)processHandle.DangerousGetHandle();
+        PInvoke.EnumProcessModulesEx(processRawHandle, moduleHandles, cb, &cbNeeded,
+            isWow64 ? ENUM_PROCESS_MODULES_EX_FLAGS.LIST_MODULES_32BIT : ENUM_PROCESS_MODULES_EX_FLAGS.LIST_MODULES_64BIT);
+
+        if (cb >= cbNeeded)
+        {
+            moduleName = Path.DirectorySeparatorChar + moduleName.ToUpper();
+            var nameBuffer = stackalloc char[(int)PInvoke.MAX_PATH];
+            foreach (var iterModuleHandle in new Span<HMODULE>(moduleHandles, (int)(cbNeeded / Marshal.SizeOf<HMODULE>())))
+            {
+                if (PInvoke.GetModuleFileNameEx(processRawHandle, iterModuleHandle, nameBuffer,
+                        PInvoke.MAX_PATH) is var iterModuleNameLength && iterModuleNameLength > moduleName.Length)
+                {
+                    var iterModuleNameSpan = new Span<char>(nameBuffer, (int)iterModuleNameLength);
+                    if (IsTheRightModule(iterModuleNameSpan))
+                    {
+                        return iterModuleHandle;
+                    }
+                }
+            }
+        }
+
+        return (HMODULE)nint.Zero;
+
+        bool IsTheRightModule(ReadOnlySpan<char> m)
+        {
+            var moduleNameSpan = moduleName.AsSpan();
+            for (int i = 0; i < moduleNameSpan.Length; i++)
+            {
+                if (char.ToUpper(m[i + m.Length - moduleNameSpan.Length]) != moduleNameSpan[i])
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+    }
+
+    static unsafe uint GetModuleExportRva(SafeHandle processHandle, bool isWow64, nint moduleBase, string functionName)
+    {
+        var exportDirectory = ReadExportDirectory(processHandle, isWow64, moduleBase);
+
+        if (TryFindingOrdinal(out var ordinal))
+        {
+            var ordinalBase = exportDirectory.Base;
+            var functionAddresses = new uint[exportDirectory.NumberOfFunctions];
+            fixed (uint* functionAddressesPtr = functionAddresses)
+            {
+                if (!PInvoke.ReadProcessMemory(processHandle, (void*)(moduleBase + exportDirectory.AddressOfFunctions),
+                    functionAddressesPtr, (nuint)(functionAddresses.Length * sizeof(uint)), null))
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                }
+            }
+            return functionAddresses[ordinal - ordinalBase];
+        }
+
+        return 0;
+
+
+        bool TryFindingOrdinal(out uint ordinal)
+        {
+            var nameAddresses = new uint[exportDirectory.NumberOfNames];
+            fixed (uint* namedAddressesPtr = nameAddresses)
+            {
+                if (!PInvoke.ReadProcessMemory(processHandle, (void*)(moduleBase + exportDirectory.AddressOfNames),
+                    namedAddressesPtr, (nuint)(nameAddresses.Length * sizeof(uint)), null))
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                }
+            }
+
+            var namedOrdinals = new ushort[exportDirectory.NumberOfNames];
+            fixed (ushort* namedOrdinalsPtr = namedOrdinals)
+            {
+                if (!PInvoke.ReadProcessMemory(processHandle, (void*)(moduleBase + exportDirectory.AddressOfNameOrdinals),
+                    namedOrdinalsPtr, (nuint)(namedOrdinals.Length * sizeof(ushort)), null))
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                }
+            }
+
+            var ordinalBase = exportDirectory.Base;
+            var buffer = stackalloc byte[(int)PInvoke.MAX_PATH];
+            for (int i = 0; i < nameAddresses.Length; i++)
+            {
+                if (!PInvoke.ReadProcessMemory(processHandle, (void*)(moduleBase + nameAddresses[i]), buffer, PInvoke.MAX_PATH, null))
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                }
+                // make sure that we always have a null-terminated string
+                buffer[PInvoke.MAX_PATH - 1] = 0;
+                var name = Marshal.PtrToStringAnsi((nint)buffer) ?? "";
+                if (string.Equals(name, functionName, StringComparison.OrdinalIgnoreCase))
+                {
+                    ordinal = ordinalBase + namedOrdinals[i];
+                    return true;
+                }
+            }
+
+            ordinal = 0;
+            return false;
+        }
+
+        static unsafe IMAGE_EXPORT_DIRECTORY ReadExportDirectory(SafeHandle processHandle, bool isWow64, nint moduleBase)
+        {
+            IMAGE_DATA_DIRECTORY ReadExportDirectoryEntry32(int ntHeaderOffset)
+            {
+                IMAGE_NT_HEADERS32 inh;
+                if (!PInvoke.ReadProcessMemory(processHandle, (void*)(moduleBase + ntHeaderOffset), &inh,
+                    (nuint)Marshal.SizeOf<IMAGE_NT_HEADERS32>(), null))
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                }
+                return inh.OptionalHeader.DataDirectory.AsReadOnlySpan()[(int)IMAGE_DIRECTORY_ENTRY.IMAGE_DIRECTORY_ENTRY_EXPORT];
+            }
+
+            IMAGE_DATA_DIRECTORY ReadExportDirectoryEntry64(int ntHeaderOffset)
+            {
+                IMAGE_NT_HEADERS64 inh;
+                if (!PInvoke.ReadProcessMemory(processHandle, (void*)(moduleBase + ntHeaderOffset), &inh,
+                    (nuint)Marshal.SizeOf<IMAGE_NT_HEADERS64>(), null))
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                }
+                return inh.OptionalHeader.DataDirectory.AsReadOnlySpan()[(int)IMAGE_DIRECTORY_ENTRY.IMAGE_DIRECTORY_ENTRY_EXPORT];
+            }
+
+            IMAGE_DOS_HEADER idh;
+            if (!PInvoke.ReadProcessMemory(processHandle, (void*)moduleBase, &idh, (nuint)Marshal.SizeOf<IMAGE_DOS_HEADER>(), null))
+            {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+
+            var exportDirectoryEntry = isWow64 ? ReadExportDirectoryEntry32(idh.e_lfanew) : ReadExportDirectoryEntry64(idh.e_lfanew);
+
+            IMAGE_EXPORT_DIRECTORY exportDirectory;
+            if (!PInvoke.ReadProcessMemory(processHandle, (void*)(moduleBase + exportDirectoryEntry.VirtualAddress), &exportDirectory,
+                (nuint)Marshal.SizeOf<IMAGE_EXPORT_DIRECTORY>(), null))
+            {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+
+            return exportDirectory;
+        }
+    }
+
+    static unsafe bool IsProcessWow64(SafeHandle processHandle)
+    {
+        nint isWow64 = 0;
+
+        uint returnLength = 0;
+        CheckWin32Result(PInvokeWdk.NtQueryInformationProcess(
+            (HANDLE)processHandle.DangerousGetHandle(), PROCESSINFOCLASS.ProcessWow64Information,
+            &isWow64, (uint)nint.Size, ref returnLength));
+        Debug.Assert(nint.Size == returnLength);
+
+        return isWow64 != 0;
+    }
+
+    public static void TerminateProcess(SafeHandle processHandle, uint exitCode)
+    {
+        CheckWin32Result(PInvoke.TerminateProcess(processHandle, exitCode));
     }
 }

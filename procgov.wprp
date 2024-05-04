@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WindowsPerformanceRecorder Version="1.0" Author="Sebastian Solnica">
+    <Profiles>
+        <SystemCollector Id="KernelCollector" Name="KernelCollector">
+            <BufferSize Value="1024"/>
+            <Buffers Value="256"/>
+        </SystemCollector>
+        <EventCollector Id="UserCollector" Name="UserCollector">
+            <BufferSize Value="1024"/>
+            <Buffers Value="256"/>
+        </EventCollector>
+        <SystemProvider Id="KernelProvider" Base="">
+            <Keywords>
+                <Keyword Value="Loader" />
+                <Keyword Value="ProcessThread" />
+                <Keyword Value="SampledProfile" />
+            </Keywords>
+            <Stacks>
+                <Stack Value="SampledProfile" />
+            </Stacks>
+        </SystemProvider>
+        <EventProvider Id="Procgov" Name="*LowLevelDesign-ProcessGovernor" NonPagedMemory="true" Level="5">
+        </EventProvider>
+        <EventProvider Id="DotNetRuntime" Name="e13c0d23-ccbc-4e12-931b-d9cc2eee27e4" NonPagedMemory="true" Level="5">
+            <Keywords>
+                <Keyword Value="0x40068098" />
+            </Keywords>
+        </EventProvider>
+        <EventProvider Id="DotNetRuntime_CaptureState" Name="e13c0d23-ccbc-4e12-931b-d9cc2eee27e4" NonPagedMemory="true" Level="5" CaptureStateOnly="true">
+            <CaptureStateOnSave Timeout="60">
+                <Keyword Value="0x00000000000700b8" />
+            </CaptureStateOnSave>
+        </EventProvider>
+        <EventProvider Id="DotNetRundown" Name="a669021c-c450-4609-a035-5af59af4df18" NonPagedMemory="true" Level="5" CaptureStateOnly="true">
+            <CaptureStateOnSave Timeout="60">
+                <Keyword Value="0x0000000000070138" />
+            </CaptureStateOnSave>
+        </EventProvider>
+        <Profile Id="Procgov.Light.File" LoggingMode="File" Name="Procgov" DetailLevel="Light" Description="Procgov troubleshooting">
+            <Collectors>
+                <SystemCollectorId Value="KernelCollector">
+                    <SystemProviderId Value="KernelProvider"></SystemProviderId>
+                </SystemCollectorId>
+                <EventCollectorId Value="UserCollector">
+                    <EventProviders>
+                        <EventProviderId Value="Procgov"/>
+                        <EventProviderId Value="DotNetRuntime"/>
+                        <EventProviderId Value="DotNetRuntime_CaptureState"/>
+                        <EventProviderId Value="DotNetRundown"/>
+                    </EventProviders>
+                </EventCollectorId>
+            </Collectors>
+            <TraceMergeProperties>
+                <TraceMergeProperty Id="TraceMergeProperties" Name="TraceMergeProperties">
+                    <DeletePreMergedTraceFiles Value="true" />
+                    <FileCompression Value="false" />
+                    <InjectOnly Value="false" />
+                    <SkipMerge Value="false" />
+                    <CustomEvents>
+                        <CustomEvent Value="ImageId" />
+                        <CustomEvent Value="BuildInfo" />
+                        <CustomEvent Value="VolumeMapping" />
+                        <CustomEvent Value="EventMetadata" />
+                        <CustomEvent Value="PerfTrackMetadata" />
+                        <CustomEvent Value="WinSAT" />
+                        <CustomEvent Value="NetworkInterface" />
+                    </CustomEvents>
+                </TraceMergeProperty>
+            </TraceMergeProperties>
+        </Profile>
+        <Profile Id="Procgov.Light.Memory" Base="Procgov.Light.File" LoggingMode="Memory" Name="Procgov" DetailLevel="Light" Description="Sampling .NET"/>
+        <Profile Id="Procgov.Verbose.File" Base="Procgov.Light.File" LoggingMode="File" Name="Procgov" DetailLevel="Verbose" Description="Sampling .NET"/>
+        <Profile Id="Procgov.Verbose.Memory" Base="Procgov.Light.File" LoggingMode="Memory" Name="Procgov" DetailLevel="Verbose" Description="Sampling .NET"/>
+    </Profiles>
+</WindowsPerformanceRecorder>

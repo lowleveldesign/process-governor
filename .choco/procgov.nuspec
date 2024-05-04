@@ -21,9 +21,7 @@
 
 You may set limits on a newly created process or on an already running one. 
 
-Starting from version 2.8, it is possible to update once set the limits. Simply run procgov providing new limits and the target process ID.
-
-REMEMBER to always use procgov with the same bitness as your application.</description>
+Starting from version 2.8, it is possible to update once set the limits. Simply run procgov providing new limits and the target process ID.</description>
   </metadata>
   <files>
     <file src="tools\**" target="tools" />

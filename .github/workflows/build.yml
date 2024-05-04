@@ -16,24 +16,20 @@ jobs:
 
     - uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '8.0.x' # SDK Version to use.
+        dotnet-version: '9.0.x' # SDK Version to use.
 
-    - run: dotnet test -c release
-      working-directory: ./procgov-tests
+# Lots of tests now require a GUI environment - I need to categorize them and allow only a small set here
+#    - run: dotnet test -c release
+#      working-directory: ./procgov-tests
 
-    - run: dotnet publish -c release -r win-x86 --self-contained
-      working-directory: ./procgov
-
-    - run: dotnet publish -c release -r win-x64 --self-contained
+    - run: dotnet publish -c release -r win-x64
       working-directory: ./procgov
 
     - name: Copy artifacts
       run: |
         New-Item -Type Directory -Path artifacts
-        Copy-Item -Path "procgov/bin/release/net8.0-windows/win-x86/publish/procgov.exe" -Destination "artifacts/procgov32.exe"
-        Copy-Item -Path "procgov/bin/release/net8.0-windows/win-x86/publish/procgov.pdb" -Destination "artifacts/procgov32.pdb"
-        Copy-Item -Path "procgov/bin/release/net8.0-windows/win-x64/publish/procgov.exe" -Destination "artifacts/procgov64.exe"
-        Copy-Item -Path "procgov/bin/release/net8.0-windows/win-x64/publish/procgov.pdb" -Destination "artifacts/procgov64.pdb"
+        Copy-Item -Path "procgov/bin/release/net8.0-windows/win-x64/publish/procgov.exe" -Destination "artifacts/procgov.exe"
+        Copy-Item -Path "procgov/bin/release/net8.0-windows/win-x64/publish/procgov.pdb" -Destination "artifacts/procgov.pdb"
 
     - uses: actions/upload-artifact@v4
       with:

@@ -8,16 +8,8 @@ NestedInstallerType: portable
 Installers:
 - Architecture: x64
   NestedInstallerFiles:
-  - RelativeFilePath: procgov64.exe
-    PortableCommandAlias: procgov64
-  - RelativeFilePath: procgov32.exe
-    PortableCommandAlias: procgov32
-  InstallerUrl: https://github.com/lowleveldesign/process-governor/releases/download/###TAG###/procgov.zip
-  InstallerSha256: ###FILE_HASH###
-- Architecture: x86
-  NestedInstallerFiles:
-  - RelativeFilePath: procgov32.exe
-    PortableCommandAlias: procgov32
+  - RelativeFilePath: procgov.exe
+    PortableCommandAlias: procgov
   InstallerUrl: https://github.com/lowleveldesign/process-governor/releases/download/###TAG###/procgov.zip
   InstallerSha256: ###FILE_HASH###
 ManifestType: installer
