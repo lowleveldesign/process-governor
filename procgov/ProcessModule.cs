@@ -14,11 +14,11 @@ internal static class ProcessModule
 
     private static readonly TraceSource logger = Program.Logger;
 
-    public static Win32Job AssignProcessToJobObject(int pid, SessionSettings session)
+    public static Win32Job AssignProcessToJobObject(int pid, JobSettings session)
     {
         var currentProcessId = (uint)Environment.ProcessId;
         using var currentProcessHandle = PInvoke.GetCurrentProcess_SafeHandle();
-        var dbgpriv = AccountPrivilegeModule.EnablePrivileges(currentProcessId, currentProcessHandle, new[] { "SeDebugPrivilege" },
+        var dbgpriv = AccountPrivilegeModule.EnablePrivileges(currentProcessId, currentProcessHandle, ["SeDebugPrivilege"],
                         TraceEventType.Information);
 
         try
@@ -67,7 +67,7 @@ internal static class ProcessModule
         }
     }
 
-    public static Win32Job AssignProcessesToJobObject(int[] pids, SessionSettings session)
+    public static Win32Job AssignProcessesToJobObject(int[] pids, JobSettings session)
     {
         static bool TryOpenProcGovJob(SafeHandle processHandle, out SafeHandle jobHandle, out string jobName)
         {
@@ -205,7 +205,7 @@ internal static class ProcessModule
     }
 
     public static unsafe Win32Job StartProcessAndAssignToJobObject(
-        IList<string> procargs, SessionSettings session)
+        IList<string> procargs, JobSettings session)
     {
         var pi = new PROCESS_INFORMATION();
         var si = new STARTUPINFOW();
@@ -254,7 +254,7 @@ internal static class ProcessModule
     }
 
     public static unsafe Win32Job StartProcessUnderDebuggerAndAssignToJobObject(
-        IList<string> procargs, SessionSettings session)
+        IList<string> procargs, JobSettings session)
     {
         var pi = new PROCESS_INFORMATION();
         var si = new STARTUPINFOW();
@@ -301,7 +301,7 @@ internal static class ProcessModule
         }
     }
 
-    private static ulong GetSystemOrProcessorGroupAffinity(SafeHandle processHandle, SessionSettings session)
+    private static ulong GetSystemOrProcessorGroupAffinity(SafeHandle processHandle, JobSettings session)
     {
         CheckWin32Result(PInvoke.GetProcessAffinityMask(processHandle, out _, out var sysaff));
         if (sysaff == 0 && (session.CpuAffinityMask != 0 || session.NumaNode != 0xffff))

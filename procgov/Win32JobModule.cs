@@ -58,7 +58,7 @@ internal static class Win32JobModule
         return !jobHandle.IsInvalid;
     }
 
-    public static void SetLimits(Win32Job job, SessionSettings session, ulong systemOrProcessorGroupAffinityMask)
+    public static void SetLimits(Win32Job job, JobSettings session, ulong systemOrProcessorGroupAffinityMask)
     {
         if (session.NumaNode != 0xffff)
         {
@@ -77,7 +77,7 @@ internal static class Win32JobModule
 
     // Process affinity is updated in the SetNumaAffinity method - updating through basic limits
     // could fail if Numa node was previously set (issue #46)
-    private static unsafe void SetBasicLimits(Win32Job job, SessionSettings session)
+    private static unsafe void SetBasicLimits(Win32Job job, JobSettings session)
     {
         var limitInfo = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
         var size = (uint)Marshal.SizeOf(limitInfo);
@@ -132,7 +132,7 @@ internal static class Win32JobModule
         }
     }
 
-    private static unsafe void SetMaxCpuRate(Win32Job job, SessionSettings session, ulong affinityMask)
+    private static unsafe void SetMaxCpuRate(Win32Job job, JobSettings session, ulong affinityMask)
     {
         if (session.CpuMaxRate > 0)
         {
@@ -164,7 +164,7 @@ internal static class Win32JobModule
         }
     }
 
-    static unsafe void SetNumaAffinity(Win32Job job, SessionSettings session, ulong systemOrProcessorGroupAffinityMask)
+    static unsafe void SetNumaAffinity(Win32Job job, JobSettings session, ulong systemOrProcessorGroupAffinityMask)
     {
         if (session.NumaNode != 0xffff || session.CpuAffinityMask != 0)
         {
@@ -250,7 +250,7 @@ internal static class Win32JobModule
         }
     }
 
-    static unsafe void SetMaxBandwith(Win32Job job, SessionSettings session)
+    static unsafe void SetMaxBandwith(Win32Job job, JobSettings session)
     {
         if (session.MaxBandwidth > 0)
         {

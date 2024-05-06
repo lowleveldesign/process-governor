@@ -5,6 +5,7 @@
         <TargetFramework>net8.0-windows</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
+        <RootNamespace>ProcessGovernor</RootNamespace>
         <AssemblyTitle>ProcessGovernor</AssemblyTitle>
         <AssemblyProduct>ProcessGovernor</AssemblyProduct>
         <Copyright>© Sebastian Solnica (@lowleveldesign) 2022</Copyright>
