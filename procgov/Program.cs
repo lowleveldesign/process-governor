@@ -1,7 +1,6 @@
 ﻿using Microsoft.Win32;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Security.Principal;
 using System.Text;
@@ -27,18 +26,7 @@ record JobSettings(
     ushort NumaNode = 0xffff
 );
 
-enum ExitBehavior { WaitForJobCompletion, DontWaitForJobCompletion, TerminateJobOnExit };
-
-interface IExecutionMode { }
-record LaunchProcess(List<string> Procargs, bool NewConsole, ExitBehavior ExitBehavior) : IExecutionMode;
-record AttachToProcesses(int[] Pids, ExitBehavior ExitBehavior) : IExecutionMode;
-record Monitor : IExecutionMode;
-record Service : IExecutionMode;
-record InstallMonitor(string ExecutablePath, JobSettings Settings) : IExecutionMode;
-record UninstallMonitor(string ExecutablePath) : IExecutionMode;
-record Exit(int errorCode) : IExecutionMode;
-
-public static class Program
+internal static partial class Program
 {
 #if DEBUG
     const bool debugOutput = true;
@@ -50,6 +38,14 @@ public static class Program
     public static int Main(string[] args)
     {
         CmdLine.ParseArgs(args);
+
+        if (showhelp)
+        {
+            ShowHeader();
+            ShowHelp();
+            // FIXME: should return error code if something failed
+            return 0;
+        }
 
         if (nogui)
         {
@@ -127,7 +123,6 @@ public static class Program
 
     }
 
-
     static void ShowLimits(JobSettings session)
     {
         if (session.CpuAffinityMask != 0)
@@ -183,17 +178,6 @@ public static class Program
             Console.WriteLine("All configured limits will also apply to the child processes.");
         }
         Console.WriteLine();
-    }
-
-    public static ulong CalculateAffinityMaskFromCpuCount(int cpuCount)
-    {
-        ulong mask = 0;
-        for (int i = 0; i < cpuCount; i++)
-        {
-            mask <<= 1;
-            mask |= 0x1;
-        }
-        return mask;
     }
 
     private static bool IsUserAdmin()
