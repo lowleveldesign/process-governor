@@ -17,7 +17,7 @@ public class ParseArgsTests
     [Test]
     public void WorkingSetLimitsTest()
     {
-        if (Program.ParseArgs(["--minws=1M --maxws=100M test.exe"], out _) is LaunchProcess
+        if (Program.ParseArgs(["--minws=1M", "--maxws=100M", "test.exe"]) is LaunchProcess
             {
                 JobSettings: { MinWorkingSetSize: var minws, MaxWorkingSetSize: var maxws }
             })
@@ -26,38 +26,44 @@ public class ParseArgsTests
         }
         else { Assert.Fail(); }
 
-        Assert.That(Program.ParseArgs(["--minws=1 test.exe"], out _),
-            Throws.ArgumentException.With.Message.EqualTo("minws and maxws must be set together and be greater than 0."));
-        Assert.That(Program.ParseArgs(["--maxws=1 test.exe"], out _),
-            Throws.ArgumentException.With.Message.EqualTo("minws and maxws must be set together and be greater than 0."));
-        Assert.That(Program.ParseArgs(["--minws=0 --maxws=10M test.exe"], out _),
-            Throws.ArgumentException.With.Message.EqualTo("minws and maxws must be set together and be greater than 0."));
+        Assert.That(Program.ParseArgs(["--minws=1", "test.exe"]) is ExitImmediately
+        {
+            ErrorMessage: "minws and maxws must be set together and be greater than 0."
+        });
+        Assert.That(Program.ParseArgs(["--maxws=1", "test.exe"]) is ExitImmediately
+        {
+            ErrorMessage: "minws and maxws must be set together and be greater than 0."
+        });
+        Assert.That(Program.ParseArgs(["--minws=0", "--maxws=10M", "test.exe"]) is ExitImmediately
+        {
+            ErrorMessage: "minws and maxws must be set together and be greater than 0."
+        });
     }
 
     [Test]
     public void AffinityMaskFromCpuCountTest()
     {
-        Assert.That(Program.ParseArgs(["-c 1 test.exe"], out _) is LaunchProcess
+        Assert.That(Program.ParseArgs(["-c", "1", "test.exe"]) is LaunchProcess
         {
             JobSettings.CpuAffinityMask: var am1
         } ? am1 : 0, Is.EqualTo(0x1UL));
 
-        Assert.That(Program.ParseArgs(["--cpu=2 test.exe"], out _) is LaunchProcess
+        Assert.That(Program.ParseArgs(["--cpu=2", "test.exe"]) is LaunchProcess
         {
             JobSettings.CpuAffinityMask: var am2
         } ? am2 : 0, Is.EqualTo(0x3UL));
 
-        Assert.That(Program.ParseArgs(["--cpu 4 test.exe"], out _) is LaunchProcess
+        Assert.That(Program.ParseArgs(["--cpu", "4", "test.exe"]) is LaunchProcess
         {
             JobSettings.CpuAffinityMask: var am4
         } ? am4 : 0, Is.EqualTo(0xfUL));
 
-        Assert.That(Program.ParseArgs(["--cpu=9 test.exe"], out _) is LaunchProcess
+        Assert.That(Program.ParseArgs(["--cpu=9", "test.exe"]) is LaunchProcess
         {
             JobSettings.CpuAffinityMask: var am9
         } ? am9 : 0, Is.EqualTo(0x1ffUL));
 
-        Assert.That(Program.ParseArgs(["--cpu=64 test.exe"], out _) is LaunchProcess
+        Assert.That(Program.ParseArgs(["--cpu=64", "test.exe"]) is LaunchProcess
         {
             JobSettings.CpuAffinityMask: var am64
         } ? am64 : 0, Is.EqualTo(0xffffffffffffffffUL));
@@ -66,52 +72,54 @@ public class ParseArgsTests
     [Test]
     public void MemoryStringTest()
     {
-        Assert.That(Program.ParseArgs(["-m=2K test.exe"], out _) is LaunchProcess
+        Assert.That(Program.ParseArgs(["-m=2K", "test.exe"]) is LaunchProcess
         {
             JobSettings.MaxProcessMemory: var m2k
         } ? m2k : 0, Is.EqualTo(2 * 1024u));
 
-        Assert.That(Program.ParseArgs(["--maxmem=3M test.exe"], out _) is LaunchProcess
+        Assert.That(Program.ParseArgs(["--maxmem=3M", "test.exe"]) is LaunchProcess
         {
             JobSettings.MaxProcessMemory: var m3m
         } ? m3m : 0, Is.EqualTo(3 * 1024u * 1024u));
 
-        Assert.That(Program.ParseArgs(["-maxjobmem 3G test.exe"], out _) is LaunchProcess
+        Assert.That(Program.ParseArgs(["-maxjobmem", "3G", "test.exe"]) is LaunchProcess
         {
-            JobSettings.MaxProcessMemory: var m3g
+            JobSettings.MaxJobMemory: var m3g
         } ? m3g : 0, Is.EqualTo(3 * 1024u * 1024u * 1024u));
     }
 
     [Test]
     public void TimeStringToMillisecondsTest()
     {
-        Assert.That(Program.ParseArgs(["--process-utime=10 test.exe"], out _) is LaunchProcess
+        Assert.That(Program.ParseArgs(["--process-utime=10", "test.exe"]) is LaunchProcess
         {
             JobSettings.ProcessUserTimeLimitInMilliseconds: var t10
         } ? t10 : 0, Is.EqualTo(10u));
 
-        Assert.That(Program.ParseArgs(["--job-utime 10ms test.exe"], out _) is LaunchProcess
+        Assert.That(Program.ParseArgs(["--job-utime", "10ms", "test.exe"]) is LaunchProcess
         {
             JobSettings.JobUserTimeLimitInMilliseconds: var t10ms
         } ? t10ms : 0, Is.EqualTo(10u));
 
-        Assert.That(Program.ParseArgs(["--job-utime=10s test.exe"], out _) is LaunchProcess
+        Assert.That(Program.ParseArgs(["--job-utime=10s", "test.exe"]) is LaunchProcess
         {
             JobSettings.JobUserTimeLimitInMilliseconds: var t10s
         } ? t10s : 0, Is.EqualTo(10000u));
 
-        Assert.That(Program.ParseArgs(["-t=10m test.exe"], out _) is LaunchProcess
+        Assert.That(Program.ParseArgs(["-t=10m", "test.exe"]) is LaunchProcess
         {
             JobSettings.ClockTimeLimitInMilliseconds: var t10m
         } ? t10m : 0, Is.EqualTo(600000u));
 
-        Assert.That(Program.ParseArgs(["--timeout=10h test.exe"], out _) is LaunchProcess
+        Assert.That(Program.ParseArgs(["--timeout=10h", "test.exe"]) is LaunchProcess
         {
             JobSettings.ClockTimeLimitInMilliseconds: var t10h
         } ? t10h : 0, Is.EqualTo(36000000u));
 
-        Assert.That(Program.ParseArgs(["--timeout=sdfms test.exe"], out _), 
-            Throws.ArgumentException.With.Message.EqualTo("invalid number in one of the constraints"));
+        Assert.That(Program.ParseArgs(["--timeout=sdfms", "test.exe"]) is ExitImmediately
+        {
+            ErrorMessage: "invalid number in one of the constraints"
+        });
     }
 
     [Test]
@@ -126,9 +134,10 @@ public class ParseArgsTests
                 writer.WriteLine("  TEST2 = TEST VAL2  ");
             }
 
-            var session = new SessionSettings();
-            Program.LoadCustomEnvironmentVariables(session, envVarsFile);
-            Assert.That(session.AdditionalEnvironmentVars, Is.EquivalentTo(new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) {
+            Assert.That(Program.ParseArgs([$"--env=\"{envVarsFile}\"", "test.exe"]) is LaunchProcess
+            {
+                Environment: var env
+            } ? env : default, Is.EquivalentTo(new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) {
                 { "TEST", "TESTVAL" },
                 { "TEST2", "TEST VAL2" }
             }));
@@ -138,10 +147,8 @@ public class ParseArgsTests
                 writer.WriteLine("  = TEST VAL2  ");
             }
 
-            Assert.Throws<ArgumentException>(() =>
-            {
-                Program.LoadCustomEnvironmentVariables(session, envVarsFile);
-            });
+            Assert.That(Program.ParseArgs([$"--env=\"{envVarsFile}\"", "test.exe"]),
+                Throws.ArgumentException.With.Message.EqualTo("the environment file contains invalid data (line: 2)"));
         }
         finally
         {

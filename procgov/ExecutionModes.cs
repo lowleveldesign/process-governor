@@ -7,9 +7,9 @@ using System.Threading.Tasks;
 namespace ProcessGovernor;
 enum ExitBehavior { WaitForJobCompletion, DontWaitForJobCompletion, TerminateJobOnExit };
 
-interface IExecutionMode { }
+internal interface IExecutionMode { }
 
-record ExitImmediately(string errorMessage) : IExecutionMode;
+record ExitImmediately(string ErrorMessage) : IExecutionMode;
 
 record LaunchProcess(
     JobSettings JobSettings,
@@ -18,6 +18,7 @@ record LaunchProcess(
     Dictionary<string, string> Environment,
     List<string> Privileges,
     bool NoGui,
+    bool Quiet,
     ExitBehavior ExitBehavior) : IExecutionMode;
 
 record AttachToProcesses(
@@ -26,6 +27,7 @@ record AttachToProcesses(
     Dictionary<string, string> Environment,
     List<string> Privileges,
     bool NoGui,
+    bool Quiet,
     ExitBehavior ExitBehavior) : IExecutionMode;
 
 record RunAsMonitor : IExecutionMode;

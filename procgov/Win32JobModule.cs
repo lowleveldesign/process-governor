@@ -208,11 +208,11 @@ internal static class Win32JobModule
                         {
                             firstNonZeroBitPosition++;
                         }
-                        session.CpuAffinityMask <<= firstNonZeroBitPosition & 0x3f;
+                        // FIXME: session.CpuAffinityMask <<= firstNonZeroBitPosition & 0x3f;
                     }
                     else
                     {
-                        session.CpuAffinityMask = nodeAffinityMask;
+                        // FIXME: session.CpuAffinityMask = nodeAffinityMask;
                     }
                     // NOTE: this could result in an overflow on 32-bit apps, but I can't
                     // think of a nice way of handling it here

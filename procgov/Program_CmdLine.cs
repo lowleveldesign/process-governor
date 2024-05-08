@@ -7,7 +7,7 @@ namespace ProcessGovernor;
 
 static partial class Program
 {
-    public static IExecutionMode ParseArgs(string[] rawArgs, out bool quiet)
+    internal static IExecutionMode ParseArgs(string[] rawArgs)
     {
         try
         {
@@ -30,7 +30,7 @@ static partial class Program
                 parsedArgs.Remove("n", out v) || parsedArgs.Remove("node", out v) ? ushort.Parse(v[^1]) : (ushort)0
             );
 
-            if (jobSettings.MaxWorkingSetSize != jobSettings.MinWorkingSetSize && 
+            if (jobSettings.MaxWorkingSetSize != jobSettings.MinWorkingSetSize &&
                 Math.Min(jobSettings.MaxWorkingSetSize, jobSettings.MinWorkingSetSize) == 0)
             {
                 throw new ArgumentException("minws and maxws must be set together and be greater than 0.");
@@ -47,7 +47,7 @@ static partial class Program
                 _ => ExitBehavior.WaitForJobCompletion
             };
 
-            quiet = parsedArgs.Remove("q") || parsedArgs.Remove("quiet");
+            var quiet = parsedArgs.Remove("q") || parsedArgs.Remove("quiet");
             if (parsedArgs.Remove("v") || parsedArgs.Remove("verbose"))
             {
                 Logger.Switch.Level = SourceLevels.Verbose;
@@ -77,19 +77,19 @@ static partial class Program
                 ([], [], false, true, false, false) => new RunAsService(),
                 ([var executable], [], false, false, true, false) => new InstallService(jobSettings, executable),
                 ([var executable], [], false, false, false, true) => new UninstallService(executable),
-                (_, [], false, false, false, false) => new LaunchProcess(jobSettings, procargs, newConsole, environment, privileges, nogui, exitBehavior),
-                ([], _, false, false, false, false) => new AttachToProcesses(jobSettings, pids, environment, privileges, nogui, exitBehavior),
-                _ => throw new ArgumentException("please provide either an executable path or PID(s)");
+                (_, [], false, false, false, false) =>
+                    new LaunchProcess(jobSettings, procargs, newConsole, environment, privileges, nogui, quiet, exitBehavior),
+                ([], _, false, false, false, false) =>
+                    new AttachToProcesses(jobSettings, pids, environment, privileges, nogui, quiet, exitBehavior),
+                _ => throw new ArgumentException("please provide either an executable path or PID(s)")
             };
         }
         catch (FormatException)
         {
-            quiet = default;
             return new ExitImmediately("invalid number in one of the constraints");
         }
         catch (ArgumentException ex)
         {
-            quiet = default;
             return new ExitImmediately(ex.Message);
         }
 
@@ -129,7 +129,7 @@ static partial class Program
 
                 while ((line = reader.ReadLine()) != null)
                 {
-                    var ind = line.IndexOf("=");
+                    var ind = line.IndexOf('=');
                     if (ind > 0)
                     {
                         var key = line[..ind].Trim();
@@ -233,7 +233,7 @@ static partial class Program
 
             foreach (var arg in args)
             {
-                if (!firstFreeArgPassed && arg.StartsWith("-", StringComparison.Ordinal))
+                if (!firstFreeArgPassed && arg.StartsWith('-'))
                 {
                     if (arg == "--")
                     {
@@ -260,7 +260,7 @@ static partial class Program
                     }
                     else
                     {
-                        result[lastOption] = new List<string> { arg };
+                        result[lastOption] = [arg];
                     }
                     firstFreeArgPassed = lastOption == "";
                     lastOption = "";
