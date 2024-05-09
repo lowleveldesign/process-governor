@@ -1,7 +1,5 @@
 ﻿using System.Diagnostics;
 using System.Globalization;
-using System.Net.Quic;
-using System.Reflection;
 
 namespace ProcessGovernor;
 

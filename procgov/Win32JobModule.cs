@@ -12,6 +12,26 @@ using static ProcessGovernor.NtApi;
 
 namespace ProcessGovernor;
 
+public record Win32Job(SafeHandle JobHandle, string JobName, SafeHandle? FirstProcessHandle = null, long ClockTimeLimitInMilliseconds = 0L) : IDisposable
+{
+    private readonly DateTime startTimeUtc = DateTime.UtcNow;
+
+    public bool IsTimedOut => ClockTimeLimitInMilliseconds > 0 
+        && DateTime.UtcNow.Subtract(startTimeUtc).TotalMilliseconds >= ClockTimeLimitInMilliseconds;
+
+    public SafeHandle Handle => JobHandle;
+
+    public void Dispose()
+    {
+        JobHandle.Dispose();
+        if (FirstProcessHandle is { } h && !h.IsInvalid)
+        {
+            h.Dispose();
+        }
+    }
+}
+
+
 internal static class Win32JobModule
 {
     private static readonly TraceSource logger = Program.Logger;
@@ -132,7 +152,7 @@ internal static class Win32JobModule
         }
     }
 
-    private static unsafe void SetMaxCpuRate(Win32Job job, JobSettings session, ulong affinityMask)
+    private static unsafe void SetMaxCpuRate(Win32Job job, JobSettings session, ulong systemOrProcessorGroupAffinityMask)
     {
         if (session.CpuMaxRate > 0)
         {
@@ -142,10 +162,9 @@ internal static class Win32JobModule
 
             // CPU rate is set for the whole system so includes all the logical CPUs. When 
             // we have the CPU affinity set, we will divide the rate accordingly.
-            if (session.CpuAffinityMask != 0)
+            if ((systemOrProcessorGroupAffinityMask & session.CpuAffinityMask) is var cpuAffinityMask && cpuAffinityMask != 0)
             {
-                ulong affinity = affinityMask & session.CpuAffinityMask;
-                var numberOfSelectedCores = (uint)Enumerable.Range(0, 8 * sizeof(ulong)).Count(i => (affinity & (1UL << i)) != 0);
+                var numberOfSelectedCores = (uint)Enumerable.Range(0, 8 * sizeof(ulong)).Count(i => (cpuAffinityMask & (1UL << i)) != 0);
                 Debug.Assert(numberOfSelectedCores < Environment.ProcessorCount);
                 finalCpuRate /= ((uint)Environment.ProcessorCount / numberOfSelectedCores);
             }
@@ -197,6 +216,7 @@ internal static class Win32JobModule
                     Mask: 192 (0x11000000)
                     */
 
+                    var cpuAffinityMask = session.CpuAffinityMask;
                     var nodeAffinityMask = Convert.ToUInt64(groupAffinity.Mask);
                     if (session.CpuAffinityMask != 0)
                     {
@@ -208,15 +228,15 @@ internal static class Win32JobModule
                         {
                             firstNonZeroBitPosition++;
                         }
-                        // FIXME: session.CpuAffinityMask <<= firstNonZeroBitPosition & 0x3f;
+                        cpuAffinityMask <<= firstNonZeroBitPosition & 0x3f;
                     }
                     else
                     {
-                        // FIXME: session.CpuAffinityMask = nodeAffinityMask;
+                        cpuAffinityMask = nodeAffinityMask;
                     }
                     // NOTE: this could result in an overflow on 32-bit apps, but I can't
                     // think of a nice way of handling it here
-                    groupAffinity.Mask = (nuint)(session.CpuAffinityMask & groupAffinity.Mask);
+                    groupAffinity.Mask = (nuint)(cpuAffinityMask & groupAffinity.Mask);
 
                     return groupAffinity;
                 }

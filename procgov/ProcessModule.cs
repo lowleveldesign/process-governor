@@ -10,9 +10,54 @@ namespace ProcessGovernor;
 
 internal static class ProcessModule
 {
-    private const string JobNameEnvironmentVariable = "PROCGOV_JOB";
-
     private static readonly TraceSource logger = Program.Logger;
+
+    public static unsafe Win32Job StartProcessAndAssignToJobObject(LaunchProcess exec)
+    {
+        var pi = new PROCESS_INFORMATION();
+        var si = new STARTUPINFOW();
+        var processCreationFlags = PROCESS_CREATION_FLAGS.CREATE_UNICODE_ENVIRONMENT | PROCESS_CREATION_FLAGS.CREATE_SUSPENDED;
+        if (exec.NewConsole)
+        {
+            processCreationFlags |= PROCESS_CREATION_FLAGS.CREATE_NEW_CONSOLE;
+        }
+
+        var jobName = $"procgov-{Guid.NewGuid():D}";
+
+        fixed (char* penv = GetEnvironmentString(exec.Environment))
+        {
+            var args = (string.Join(" ", exec.Procargs.Select((string s) => s.Contains(' ') ? "\"" + s + "\"" : s)) + '\0').ToCharArray();
+            fixed (char* pargs = args)
+            {
+                var argsSpan = new Span<char>(pargs, args.Length);
+                CheckWin32Result(PInvoke.CreateProcess(null, ref argsSpan, null, null, false, processCreationFlags,
+                    penv, null, si, out pi));
+            }
+        }
+
+        var processHandle = new SafeFileHandle(pi.hProcess, true);
+        try
+        {
+            var job = Win32JobModule.CreateJobObjectAndAssignProcess(processHandle, jobName, exec.JobSettings.PropagateOnChildProcesses,
+                        exec.JobSettings.ClockTimeLimitInMilliseconds);
+            Win32JobModule.SetLimits(job, exec.JobSettings, GetSystemOrProcessorGroupAffinity(processHandle));
+
+            AccountPrivilegeModule.EnablePrivileges(pi.dwProcessId, processHandle, exec.Privileges, TraceEventType.Error);
+
+            CheckWin32Result(PInvoke.ResumeThread(pi.hThread));
+
+            return job;
+        }
+        catch
+        {
+            PInvoke.TerminateProcess(processHandle, 1);
+            throw;
+        }
+        finally
+        {
+            PInvoke.CloseHandle(pi.hThread);
+        }
+    }
 
     /*
     public static Win32Job AssignProcessToJobObject(int pid, Dictionary<string, string> environment, JobSettings session)
@@ -206,69 +251,15 @@ internal static class ProcessModule
     }
     */
 
-    public static unsafe Win32Job StartProcessAndAssignToJobObject(LaunchProcess exec)
-    {
-        var pi = new PROCESS_INFORMATION();
-        var si = new STARTUPINFOW();
-        var processCreationFlags = PROCESS_CREATION_FLAGS.CREATE_UNICODE_ENVIRONMENT | PROCESS_CREATION_FLAGS.CREATE_SUSPENDED;
-        if (exec.NewConsole)
-        {
-            processCreationFlags |= PROCESS_CREATION_FLAGS.CREATE_NEW_CONSOLE;
-        }
-
-        var jobName = $"procgov-{Guid.NewGuid():D}";
-        // FIXME: no longer required
-        exec.Environment.Add(JobNameEnvironmentVariable, jobName);
-
-        fixed (char* penv = GetEnvironmentString(exec.Environment))
-        {
-            var args = (string.Join(" ", exec.Procargs.Select((string s) => s.Contains(' ') ? "\"" + s + "\"" : s)) + '\0').ToCharArray();
-            fixed (char* pargs = args)
-            {
-                var argsSpan = new Span<char>(pargs, args.Length);
-                CheckWin32Result(PInvoke.CreateProcess(null, ref argsSpan, null, null, false, processCreationFlags,
-                    penv, null, si, out pi));
-            }
-        }
-
-        var processHandle = new SafeFileHandle(pi.hProcess, true);
-        try
-        {
-            var job = Win32JobModule.CreateJobObjectAndAssignProcess(processHandle, jobName, exec.JobSettings.PropagateOnChildProcesses,
-                        exec.JobSettings.ClockTimeLimitInMilliseconds);
-            Win32JobModule.SetLimits(job, exec.JobSettings, GetSystemOrProcessorGroupAffinity(processHandle, exec.JobSettings));
-
-            AccountPrivilegeModule.EnablePrivileges(pi.dwProcessId, processHandle, exec.Privileges, TraceEventType.Error);
-
-            CheckWin32Result(PInvoke.ResumeThread(pi.hThread));
-
-            return job;
-        }
-        catch
-        {
-            PInvoke.TerminateProcess(processHandle, 1);
-            throw;
-        }
-        finally
-        {
-            PInvoke.CloseHandle(pi.hThread);
-        }
-    }
-
-    private static ulong GetSystemOrProcessorGroupAffinity(SafeHandle processHandle, JobSettings session)
+    private static ulong GetSystemOrProcessorGroupAffinity(SafeHandle processHandle)
     {
         CheckWin32Result(PInvoke.GetProcessAffinityMask(processHandle, out _, out var sysaff));
-        if (sysaff == 0 && (session.CpuAffinityMask != 0 || session.NumaNode != 0xffff))
+        if (sysaff == 0)
         {
-            logger.TraceEvent(TraceEventType.Error, 0, "The process belongs to more than 1 processor group. " +
-                "Procgov is not able to set the process affinity.");
-
-            // FIXME: should be handled in other way
-            //session.CpuAffinityMask = 0;
-            //session.NumaNode = 0xffff;
+            logger.TraceEvent(TraceEventType.Warning, 0, "The process belongs to more than 1 processor group. " +
+                "Procgov will not able to set the process affinity.");
         }
-
-        return (ulong)sysaff;
+        return sysaff;
     }
 
     private static string GetNewJobName()

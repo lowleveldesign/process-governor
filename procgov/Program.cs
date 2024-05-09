@@ -1,11 +1,7 @@
-﻿using Microsoft.Win32;
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Diagnostics;
-using System.Globalization;
 using System.Reflection;
 using System.Runtime.CompilerServices;
-using System.Security.Principal;
-using System.Text;
 using Windows.Win32;
 using Windows.Win32.UI.WindowsAndMessaging;
 
@@ -43,20 +39,31 @@ internal static partial class Program
 
         Console.CancelKeyPress += (_, ev) => { ev.Cancel = true; cts.Cancel(); };
 
-        return ParseArgs(args) switch
+        try
         {
-            ShowHelpAndExit em => Execute(em),
-
-            _ => throw new NotImplementedException(),
-        };
+            return ParseArgs(args) switch
+            {
+                ShowHelpAndExit em => Execute(em),
+                LaunchProcess em => Execute(em, cts.Token),
+                _ => throw new NotImplementedException(),
+            };
+        }
+        catch (Win32Exception ex)
+        {
+            Console.Error.WriteLine("ERROR: {0}", (DebugOutput ? ex.ToString() : $"{ex.Message} (0x{ex.ErrorCode:X})"));
+            return 0xff;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("ERROR: {0}", (DebugOutput ? ex.ToString() : ex.Message));
+            return 0xff;
+        }
 
         //if (nogui)
         //{
         //    PInvoke.ShowWindow(PInvoke.GetConsoleWindow(), SHOW_WINDOW_CMD.SW_HIDE);
         //}
 
-        //try
-        //{
         //    if (!quiet)
         //    {
         //        Logger.Listeners.Add(new ConsoleTraceListener());
@@ -101,17 +108,6 @@ internal static partial class Program
         //    }
 
         //    return (int)exitCode;
-        //}
-        //catch (Win32Exception ex)
-        //{
-        //    Console.Error.WriteLine("ERROR: {0}", (debugOutput ? ex.ToString() : $"{ex.Message} (0x{ex.ErrorCode:X})"));
-        //    return 0xff;
-        //}
-        //catch (Exception ex)
-        //{
-        //    Console.Error.WriteLine("ERROR: {0}", (debugOutput ? ex.ToString() : ex.Message));
-        //    return 0xff;
-        //}
     }
 
     static int Execute(ShowHelpAndExit em)
@@ -126,7 +122,7 @@ internal static partial class Program
         return em.ErrorMessage != "" ? 0xff : 0;
     }
 
-    static int Execute(LaunchProcess em)
+    static int Execute(LaunchProcess em, CancellationToken ct)
     {
         if (em.NoGui)
         {
@@ -141,16 +137,42 @@ internal static partial class Program
             ShowLimits(em.JobSettings);
         }
 
-        // FIXME
-        // ProcessModule.StartProcessAndAssignToJobObject(procargs, session)
-        return 0;
+        var job = ProcessModule.StartProcessAndAssignToJobObject(em);
+
+        if (em.ExitBehavior == ExitBehavior.DontWaitForJobCompletion)
+        {
+            return 0;
+        }
+
+        if (!em.Quiet)
+        {
+            if (em.ExitBehavior == ExitBehavior.TerminateJobOnExit)
+            {
+                Console.WriteLine("Press Ctrl-C to end execution and terminate the job.");
+            }
+            else
+            {
+                Console.WriteLine("Press Ctrl-C to end execution without terminating the process.");
+            }
+            Console.WriteLine();
+        }
+
+        Win32JobModule.WaitForTheJobToComplete(job, ct);
+        var exitCode = job.FirstProcessHandle is { } h && !h.IsInvalid ? ProcessModule.GetProcessExitCode(h) : 0;
+
+        if (ct.IsCancellationRequested && em.ExitBehavior == ExitBehavior.TerminateJobOnExit)
+        {
+            Win32JobModule.TerminateJob(job, exitCode);
+        }
+
+        return (int)exitCode;
     }
 
     static void ShowHeader()
     {
         Console.WriteLine("Process Governor v{0} - sets limits on processes",
             Assembly.GetExecutingAssembly()!.GetName()!.Version!.ToString());
-        Console.WriteLine("Copyright (C) 2024 Sebastian Solnica (lowleveldesign.org)");
+        Console.WriteLine("Copyright (C) 2024 Sebastian Solnica");
         Console.WriteLine();
     }
 
@@ -202,7 +224,7 @@ internal static partial class Program
             """);
     }
 
-    public static void ShowLimits(JobSettings session)
+    static void ShowLimits(JobSettings session)
     {
         if (session.CpuAffinityMask != 0)
         {

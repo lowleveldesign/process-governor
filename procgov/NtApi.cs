@@ -200,6 +200,8 @@ public static class NtApi
 
     public static T CheckWin32Result<T>(T result)
     {
+        var lastError = Marshal.GetLastPInvokeError();
+
         return result switch
         {
             SafeHandle handle when !handle.IsInvalid => result,
@@ -212,7 +214,7 @@ public static class NtApi
             WAIT_EVENT ev when ev != WAIT_EVENT.WAIT_FAILED => result,
             NTSTATUS nt when nt.Value == 0 => result,
             NTSTATUS nt => throw new Win32Exception(nt.Value),
-            _ => throw new Win32Exception()
+            _ => throw new Win32Exception(lastError)
         };
     }
 
