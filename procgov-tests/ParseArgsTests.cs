@@ -26,15 +26,15 @@ public class ParseArgsTests
         }
         else { Assert.Fail(); }
 
-        Assert.That(Program.ParseArgs(["--minws=1", "test.exe"]) is ExitImmediately
+        Assert.That(Program.ParseArgs(["--minws=1", "test.exe"]) is ShowHelpAndExit
         {
             ErrorMessage: "minws and maxws must be set together and be greater than 0."
         });
-        Assert.That(Program.ParseArgs(["--maxws=1", "test.exe"]) is ExitImmediately
+        Assert.That(Program.ParseArgs(["--maxws=1", "test.exe"]) is ShowHelpAndExit
         {
             ErrorMessage: "minws and maxws must be set together and be greater than 0."
         });
-        Assert.That(Program.ParseArgs(["--minws=0", "--maxws=10M", "test.exe"]) is ExitImmediately
+        Assert.That(Program.ParseArgs(["--minws=0", "--maxws=10M", "test.exe"]) is ShowHelpAndExit
         {
             ErrorMessage: "minws and maxws must be set together and be greater than 0."
         });
@@ -116,7 +116,7 @@ public class ParseArgsTests
             JobSettings.ClockTimeLimitInMilliseconds: var t10h
         } ? t10h : 0, Is.EqualTo(36000000u));
 
-        Assert.That(Program.ParseArgs(["--timeout=sdfms", "test.exe"]) is ExitImmediately
+        Assert.That(Program.ParseArgs(["--timeout=sdfms", "test.exe"]) is ShowHelpAndExit
         {
             ErrorMessage: "invalid number in one of the constraints"
         });
@@ -147,8 +147,10 @@ public class ParseArgsTests
                 writer.WriteLine("  = TEST VAL2  ");
             }
 
-            Assert.That(Program.ParseArgs([$"--env=\"{envVarsFile}\"", "test.exe"]),
-                Throws.ArgumentException.With.Message.EqualTo("the environment file contains invalid data (line: 2)"));
+            Assert.That(Program.ParseArgs([$"--env=\"{envVarsFile}\"", "test.exe"]) is ShowHelpAndExit
+            {
+                ErrorMessage: "the environment file contains invalid data (line: 1)"
+            });
         }
         finally
         {

@@ -1,15 +1,10 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿namespace ProcessGovernor;
 
-namespace ProcessGovernor;
 enum ExitBehavior { WaitForJobCompletion, DontWaitForJobCompletion, TerminateJobOnExit };
 
-internal interface IExecutionMode { }
+internal interface IExecutionMode;
 
-record ExitImmediately(string ErrorMessage) : IExecutionMode;
+record ShowHelpAndExit(string ErrorMessage) : IExecutionMode;
 
 record LaunchProcess(
     JobSettings JobSettings,
