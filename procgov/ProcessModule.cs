@@ -14,7 +14,8 @@ internal static class ProcessModule
 
     private static readonly TraceSource logger = Program.Logger;
 
-    public static Win32Job AssignProcessToJobObject(int pid, JobSettings session)
+    /*
+    public static Win32Job AssignProcessToJobObject(int pid, Dictionary<string, string> environment, JobSettings session)
     {
         var currentProcessId = (uint)Environment.ProcessId;
         using var currentProcessHandle = PInvoke.GetCurrentProcess_SafeHandle();
@@ -39,7 +40,7 @@ internal static class ProcessModule
                     Win32JobModule.TryOpen(jobName, out var jobHandle) &&
                     CheckWin32Result(PInvoke.IsProcessInJob(targetProcessHandle, jobHandle, out var jobNameMatches)) && jobNameMatches)
                 {
-                    SetProcessEnvironmentVariables(pid, session.AdditionalEnvironmentVars);
+                    SetProcessEnvironmentVariables(pid, environment);
                     return new Win32Job(jobHandle, jobName, null, session.ClockTimeLimitInMilliseconds);
                 }
                 else
@@ -203,24 +204,25 @@ internal static class ProcessModule
             AccountPrivilegeModule.RestorePrivileges(currentProcessId, currentProcessHandle, dbgpriv, TraceEventType.Information);
         }
     }
+    */
 
-    public static unsafe Win32Job StartProcessAndAssignToJobObject(
-        IList<string> procargs, JobSettings session)
+    public static unsafe Win32Job StartProcessAndAssignToJobObject(LaunchProcess exec)
     {
         var pi = new PROCESS_INFORMATION();
         var si = new STARTUPINFOW();
         var processCreationFlags = PROCESS_CREATION_FLAGS.CREATE_UNICODE_ENVIRONMENT | PROCESS_CREATION_FLAGS.CREATE_SUSPENDED;
-        if (session.SpawnNewConsoleWindow)
+        if (exec.NewConsole)
         {
             processCreationFlags |= PROCESS_CREATION_FLAGS.CREATE_NEW_CONSOLE;
         }
 
         var jobName = $"procgov-{Guid.NewGuid():D}";
-        session.AdditionalEnvironmentVars.Add(JobNameEnvironmentVariable, jobName);
+        // FIXME: no longer required
+        exec.Environment.Add(JobNameEnvironmentVariable, jobName);
 
-        fixed (char* penv = GetEnvironmentString(session.AdditionalEnvironmentVars))
+        fixed (char* penv = GetEnvironmentString(exec.Environment))
         {
-            var args = (string.Join(" ", procargs.Select((string s) => s.Contains(' ') ? "\"" + s + "\"" : s)) + '\0').ToCharArray();
+            var args = (string.Join(" ", exec.Procargs.Select((string s) => s.Contains(' ') ? "\"" + s + "\"" : s)) + '\0').ToCharArray();
             fixed (char* pargs = args)
             {
                 var argsSpan = new Span<char>(pargs, args.Length);
@@ -232,11 +234,11 @@ internal static class ProcessModule
         var processHandle = new SafeFileHandle(pi.hProcess, true);
         try
         {
-            var job = Win32JobModule.CreateJobObjectAndAssignProcess(processHandle, jobName, session.PropagateOnChildProcesses,
-                        session.ClockTimeLimitInMilliseconds);
-            Win32JobModule.SetLimits(job, session, GetSystemOrProcessorGroupAffinity(processHandle, session));
+            var job = Win32JobModule.CreateJobObjectAndAssignProcess(processHandle, jobName, exec.JobSettings.PropagateOnChildProcesses,
+                        exec.JobSettings.ClockTimeLimitInMilliseconds);
+            Win32JobModule.SetLimits(job, exec.JobSettings, GetSystemOrProcessorGroupAffinity(processHandle, exec.JobSettings));
 
-            AccountPrivilegeModule.EnablePrivileges(pi.dwProcessId, processHandle, session.Privileges, TraceEventType.Error);
+            AccountPrivilegeModule.EnablePrivileges(pi.dwProcessId, processHandle, exec.Privileges, TraceEventType.Error);
 
             CheckWin32Result(PInvoke.ResumeThread(pi.hThread));
 
@@ -253,54 +255,6 @@ internal static class ProcessModule
         }
     }
 
-    public static unsafe Win32Job StartProcessUnderDebuggerAndAssignToJobObject(
-        IList<string> procargs, JobSettings session)
-    {
-        var pi = new PROCESS_INFORMATION();
-        var si = new STARTUPINFOW();
-        var processCreationFlags = PROCESS_CREATION_FLAGS.CREATE_UNICODE_ENVIRONMENT |
-                                   PROCESS_CREATION_FLAGS.DEBUG_ONLY_THIS_PROCESS;
-        if (session.SpawnNewConsoleWindow)
-        {
-            processCreationFlags |= PROCESS_CREATION_FLAGS.CREATE_NEW_CONSOLE;
-        }
-
-        var jobName = GetNewJobName();
-        session.AdditionalEnvironmentVars.Add(JobNameEnvironmentVariable, jobName);
-
-        fixed (char* penv = GetEnvironmentString(session.AdditionalEnvironmentVars))
-        {
-            var args = (string.Join(" ", procargs.Select((string s) => s.Contains(' ') ? "\"" + s + "\"" : s)) + '\0').ToCharArray();
-            fixed (char* pargs = args)
-            {
-                var argsSpan = new Span<char>(pargs, args.Length);
-                CheckWin32Result(PInvoke.CreateProcess(null, ref argsSpan, null, null, false,
-                    processCreationFlags, penv, null, si, out pi));
-            }
-        }
-
-        var processHandle = new SafeFileHandle(pi.hProcess, true);
-        try
-        {
-            CheckWin32Result(PInvoke.DebugSetProcessKillOnExit(false));
-
-            var job = Win32JobModule.CreateJobObjectAndAssignProcess(processHandle, jobName, session.PropagateOnChildProcesses,
-                        session.ClockTimeLimitInMilliseconds);
-            Win32JobModule.SetLimits(job, session, GetSystemOrProcessorGroupAffinity(processHandle, session));
-
-            AccountPrivilegeModule.EnablePrivileges(pi.dwProcessId, processHandle, session.Privileges, TraceEventType.Error);
-
-            // resume process main thread by detaching from the debuggee
-            CheckWin32Result(PInvoke.DebugActiveProcessStop(pi.dwProcessId));
-
-            return job;
-        }
-        finally
-        {
-            PInvoke.CloseHandle(pi.hThread);
-        }
-    }
-
     private static ulong GetSystemOrProcessorGroupAffinity(SafeHandle processHandle, JobSettings session)
     {
         CheckWin32Result(PInvoke.GetProcessAffinityMask(processHandle, out _, out var sysaff));
@@ -308,8 +262,10 @@ internal static class ProcessModule
         {
             logger.TraceEvent(TraceEventType.Error, 0, "The process belongs to more than 1 processor group. " +
                 "Procgov is not able to set the process affinity.");
-            session.CpuAffinityMask = 0;
-            session.NumaNode = 0xffff;
+
+            // FIXME: should be handled in other way
+            //session.CpuAffinityMask = 0;
+            //session.NumaNode = 0xffff;
         }
 
         return (ulong)sysaff;

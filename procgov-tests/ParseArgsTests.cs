@@ -89,7 +89,7 @@ public class ParseArgsTests
     }
 
     [Test]
-    public void TimeStringToMillisecondsTest()
+    public void TimeArgumentsTest()
     {
         Assert.That(Program.ParseArgs(["--process-utime=10", "test.exe"]) is LaunchProcess
         {
@@ -123,7 +123,7 @@ public class ParseArgsTests
     }
 
     [Test]
-    public void LoadCustomEnvironmentVariablesTest()
+    public void CustomEnvironmentVariablesTest()
     {
         var envVarsFile = Path.GetTempFileName();
         try
@@ -159,6 +159,15 @@ public class ParseArgsTests
                 File.Delete(envVarsFile);
             }
         }
+    }
+
+    [Test]
+    public void UnknownArgumentTest()
+    {
+        Assert.That(Program.ParseArgs(["-c", "1", "--maxmem", "100M", "--unknown", "test.exe"]) is ShowHelpAndExit
+        {
+            ErrorMessage: var err
+        } ? err : "", Is.EqualTo("unrecognized arguments: unknown"));
     }
 
     // FIXME: to replace by config

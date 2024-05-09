@@ -66,7 +66,7 @@ static partial class Program
             var install = parsedArgs.Remove("install");
             var uninstall = parsedArgs.Remove("uninstall");
 
-            if (parsedArgs.Count > 1)
+            if (parsedArgs.Count > 0)
             {
                 throw new ArgumentException("unrecognized arguments: " + string.Join(", ", parsedArgs.Keys));
             }

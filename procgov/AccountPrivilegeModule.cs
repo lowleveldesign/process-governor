@@ -22,7 +22,7 @@ internal unsafe static class AccountPrivilegeModule
     }
 
     internal static List<AccountPrivilege> EnablePrivileges(uint pid, SafeHandle processHandle,
-        string[] privilegeNames, TraceEventType errorSeverity)
+        IEnumerable<string> privilegeNames, TraceEventType errorSeverity)
     {
         CheckWin32Result(PInvoke.OpenProcessToken(processHandle, TOKEN_ACCESS_MASK.TOKEN_QUERY | TOKEN_ACCESS_MASK.TOKEN_ADJUST_PRIVILEGES,
             out var tokenHandle));

@@ -50,36 +50,6 @@ internal static partial class Program
             _ => throw new NotImplementedException(),
         };
 
-        static int Execute(ShowHelpAndExit em)
-        {
-            ShowHeader();
-            if (em.ErrorMessage != "")
-            {
-                Console.WriteLine($"ERROR: {em.ErrorMessage}");
-                Console.WriteLine();
-            }
-            ShowHelp();
-            return em.ErrorMessage != "" ? 0xff : 0;
-        }
-
-        static int Execute(LaunchProcess em)
-        {
-            if (em.NoGui)
-            {
-                PInvoke.ShowWindow(PInvoke.GetConsoleWindow(), SHOW_WINDOW_CMD.SW_HIDE);
-            }
-
-            if (!em.Quiet)
-            {
-                Logger.Listeners.Add(new ConsoleTraceListener());
-
-                ShowHeader();
-                ShowLimits(em.JobSettings);
-            }
-
-            ProcessModule.StartProcessAndAssignToJobObject(procargs, session)
-        }
-
         //if (nogui)
         //{
         //    PInvoke.ShowWindow(PInvoke.GetConsoleWindow(), SHOW_WINDOW_CMD.SW_HIDE);
@@ -142,6 +112,38 @@ internal static partial class Program
         //    Console.Error.WriteLine("ERROR: {0}", (debugOutput ? ex.ToString() : ex.Message));
         //    return 0xff;
         //}
+    }
+
+    static int Execute(ShowHelpAndExit em)
+    {
+        ShowHeader();
+        if (em.ErrorMessage != "")
+        {
+            Console.WriteLine($"ERROR: {em.ErrorMessage}");
+            Console.WriteLine();
+        }
+        ShowHelp();
+        return em.ErrorMessage != "" ? 0xff : 0;
+    }
+
+    static int Execute(LaunchProcess em)
+    {
+        if (em.NoGui)
+        {
+            PInvoke.ShowWindow(PInvoke.GetConsoleWindow(), SHOW_WINDOW_CMD.SW_HIDE);
+        }
+
+        if (!em.Quiet)
+        {
+            Logger.Listeners.Add(new ConsoleTraceListener());
+
+            ShowHeader();
+            ShowLimits(em.JobSettings);
+        }
+
+        // FIXME
+        // ProcessModule.StartProcessAndAssignToJobObject(procargs, session)
+        return 0;
     }
 
     static void ShowHeader()
