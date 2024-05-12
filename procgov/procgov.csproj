@@ -8,12 +8,10 @@
         <RootNamespace>ProcessGovernor</RootNamespace>
         <AssemblyTitle>ProcessGovernor</AssemblyTitle>
         <AssemblyProduct>ProcessGovernor</AssemblyProduct>
-        <Copyright>© Sebastian Solnica (@lowleveldesign) 2022</Copyright>
+        <Copyright>Sebastian Solnica 2024</Copyright>
         <Version>1.0.0.0</Version>
         <FileVersion>1.0.0.0</FileVersion>
-        <Platforms>AnyCPU</Platforms>
-        <PublishTrimmed>true</PublishTrimmed>
-        <PublishSingleFile>true</PublishSingleFile>
+        <PublishAot>true</PublishAot>
     </PropertyGroup>
 
     <ItemGroup>

@@ -110,7 +110,7 @@ internal static partial class Program
         //    return (int)exitCode;
     }
 
-    static int Execute(ShowHelpAndExit em)
+    internal static int Execute(ShowHelpAndExit em)
     {
         ShowHeader();
         if (em.ErrorMessage != "")
@@ -122,7 +122,7 @@ internal static partial class Program
         return em.ErrorMessage != "" ? 0xff : 0;
     }
 
-    static int Execute(LaunchProcess em, CancellationToken ct)
+    internal static int Execute(LaunchProcess em, CancellationToken ct)
     {
         if (em.NoGui)
         {
