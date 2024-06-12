@@ -1,4 +1,6 @@
-﻿namespace ProcessGovernor;
+﻿
+
+namespace ProcessGovernor;
 
 enum ExitBehavior { WaitForJobCompletion, DontWaitForJobCompletion, TerminateJobOnExit };
 

@@ -8,11 +8,26 @@ using static ProcessGovernor.NtApi;
 
 namespace ProcessGovernor;
 
-internal static class ProcessModule
+sealed class Win32Process(SafeHandle processHandle, SafeHandle mainThreadHandle, uint processId) : IDisposable
+{
+    public SafeHandle ProcessHandle => processHandle;
+
+    public uint ProcessId => processId;
+
+    public SafeHandle MainThreadHandle => mainThreadHandle;
+
+    public void Dispose()
+    {
+        processHandle.Dispose();
+    }
+}
+
+static class ProcessModule
 {
     private static readonly TraceSource logger = Program.Logger;
 
-    public static unsafe Win32Job StartProcessAndAssignToJobObject(LaunchProcess exec)
+
+    public static unsafe Win32Process CreateSuspendedProcess(LaunchProcess exec)
     {
         var pi = new PROCESS_INFORMATION();
         var si = new STARTUPINFOW();
@@ -21,8 +36,6 @@ internal static class ProcessModule
         {
             processCreationFlags |= PROCESS_CREATION_FLAGS.CREATE_NEW_CONSOLE;
         }
-
-        var jobName = $"procgov-{Guid.NewGuid():D}";
 
         fixed (char* penv = GetEnvironmentString(exec.Environment))
         {
@@ -35,28 +48,12 @@ internal static class ProcessModule
             }
         }
 
-        var processHandle = new SafeFileHandle(pi.hProcess, true);
-        try
-        {
-            var job = Win32JobModule.CreateJobObjectAndAssignProcess(processHandle, jobName, exec.JobSettings.PropagateOnChildProcesses,
-                        exec.JobSettings.ClockTimeLimitInMilliseconds);
-            Win32JobModule.SetLimits(job, exec.JobSettings, GetSystemOrProcessorGroupAffinity(processHandle));
+        return new Win32Process(new SafeFileHandle(pi.hProcess, true), new SafeFileHandle(pi.hThread, true), pi.dwProcessId);
+    }
 
-            AccountPrivilegeModule.EnablePrivileges(pi.dwProcessId, processHandle, exec.Privileges, TraceEventType.Error);
-
-            CheckWin32Result(PInvoke.ResumeThread(pi.hThread));
-
-            return job;
-        }
-        catch
-        {
-            PInvoke.TerminateProcess(processHandle, 1);
-            throw;
-        }
-        finally
-        {
-            PInvoke.CloseHandle(pi.hThread);
-        }
+    public static void ResumeProcess(Win32Process process)
+    {
+        CheckWin32Result(PInvoke.ResumeThread(process.MainThreadHandle));
     }
 
     /*

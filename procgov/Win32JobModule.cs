@@ -12,27 +12,28 @@ using static ProcessGovernor.NtApi;
 
 namespace ProcessGovernor;
 
-public record Win32Job(SafeHandle JobHandle, string JobName, SafeHandle? FirstProcessHandle = null, long ClockTimeLimitInMilliseconds = 0L) : IDisposable
+sealed class Win32Job(SafeHandle jobHandle, string jobName, SafeHandle? firstProcessHandle = null, long clockTimeLimitInMilliseconds = 0L) : IDisposable
 {
     private readonly DateTime startTimeUtc = DateTime.UtcNow;
 
-    public bool IsTimedOut => ClockTimeLimitInMilliseconds > 0 
-        && DateTime.UtcNow.Subtract(startTimeUtc).TotalMilliseconds >= ClockTimeLimitInMilliseconds;
+    public bool IsTimedOut => clockTimeLimitInMilliseconds > 0 
+        && DateTime.UtcNow.Subtract(startTimeUtc).TotalMilliseconds >= clockTimeLimitInMilliseconds;
 
-    public SafeHandle Handle => JobHandle;
+    public SafeHandle Handle => jobHandle;
+
+    public string JobName => jobName;
 
     public void Dispose()
     {
-        JobHandle.Dispose();
-        if (FirstProcessHandle is { } h && !h.IsInvalid)
+        jobHandle.Dispose();
+        if (firstProcessHandle is { } h && !h.IsInvalid)
         {
             h.Dispose();
         }
     }
 }
 
-
-internal static class Win32JobModule
+static class Win32JobModule
 {
     private static readonly TraceSource logger = Program.Logger;
 
@@ -64,10 +65,10 @@ internal static class Win32JobModule
     public static void AssignProcess(Win32Job job, SafeHandle processHandle, bool propagateOnChildProcesses)
     {
         using var currentProcessHandle = PInvoke.GetCurrentProcess_SafeHandle();
-        CheckWin32Result(PInvoke.DuplicateHandle(currentProcessHandle, job.JobHandle, processHandle,
+        CheckWin32Result(PInvoke.DuplicateHandle(currentProcessHandle, job.Handle, processHandle,
             out _, (uint)FILE_ACCESS_RIGHTS.STANDARD_RIGHTS_READ, propagateOnChildProcesses, 0));
 
-        CheckWin32Result(PInvoke.AssignProcessToJobObject(job.JobHandle, processHandle));
+        CheckWin32Result(PInvoke.AssignProcessToJobObject(job.Handle, processHandle));
     }
 
     public static unsafe bool TryOpen(string jobName, [NotNullWhen(true)] out SafeHandle jobHandle)
@@ -102,7 +103,7 @@ internal static class Win32JobModule
         var limitInfo = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
         var size = (uint)Marshal.SizeOf(limitInfo);
         var length = 0u;
-        CheckWin32Result(PInvoke.QueryInformationJobObject(job.JobHandle,
+        CheckWin32Result(PInvoke.QueryInformationJobObject(job.Handle,
             JOBOBJECTINFOCLASS.JobObjectExtendedLimitInformation, &limitInfo, size, &length));
         Debug.Assert(length == size);
 
@@ -147,7 +148,7 @@ internal static class Win32JobModule
         if (flags != 0)
         {
             limitInfo.BasicLimitInformation.LimitFlags = flags;
-            CheckWin32Result(PInvoke.SetInformationJobObject(job.JobHandle,
+            CheckWin32Result(PInvoke.SetInformationJobObject(job.Handle,
                 JOBOBJECTINFOCLASS.JobObjectExtendedLimitInformation, &limitInfo, size));
         }
     }
@@ -178,7 +179,7 @@ internal static class Win32JobModule
                 Anonymous = new JOBOBJECT_CPU_RATE_CONTROL_INFORMATION._Anonymous_e__Union { CpuRate = finalCpuRate }
             };
             var size = (uint)Marshal.SizeOf(limitInfo);
-            CheckWin32Result(PInvoke.SetInformationJobObject(job.JobHandle, JOBOBJECTINFOCLASS.JobObjectCpuRateControlInformation,
+            CheckWin32Result(PInvoke.SetInformationJobObject(job.Handle, JOBOBJECTINFOCLASS.JobObjectCpuRateControlInformation,
                 &limitInfo, size));
         }
     }
@@ -245,7 +246,7 @@ internal static class Win32JobModule
                     GROUP_AFFINITY groupAffinity = new();
                     var size = (uint)Marshal.SizeOf(groupAffinity);
                     var length = 0u;
-                    CheckWin32Result(PInvoke.QueryInformationJobObject(job.JobHandle, JOBOBJECTINFOCLASS.JobObjectGroupInformationEx,
+                    CheckWin32Result(PInvoke.QueryInformationJobObject(job.Handle, JOBOBJECTINFOCLASS.JobObjectGroupInformationEx,
                             &groupAffinity, size, &length));
 
                     // currently we support only one processor group per process
@@ -264,7 +265,7 @@ internal static class Win32JobModule
             logger.TraceInformation($"Group affinity number: {groupAffinity.Group}, mask: 0x{groupAffinity.Mask:x}");
 
             var size = (uint)Marshal.SizeOf(groupAffinity);
-            CheckWin32Result(PInvoke.SetInformationJobObject(job.JobHandle, JOBOBJECTINFOCLASS.JobObjectGroupInformationEx,
+            CheckWin32Result(PInvoke.SetInformationJobObject(job.Handle, JOBOBJECTINFOCLASS.JobObjectGroupInformationEx,
                 &groupAffinity, size));
 
         }
@@ -282,7 +283,7 @@ internal static class Win32JobModule
                 DscpTag = 0
             };
             var size = (uint)Marshal.SizeOf(limitInfo);
-            CheckWin32Result(PInvoke.SetInformationJobObject(job.JobHandle, JOBOBJECTINFOCLASS.JobObjectNetRateControlInformation,
+            CheckWin32Result(PInvoke.SetInformationJobObject(job.Handle, JOBOBJECTINFOCLASS.JobObjectNetRateControlInformation,
                 &limitInfo, size));
         }
     }
@@ -301,7 +302,7 @@ internal static class Win32JobModule
                 default:
                     JOBOBJECT_BASIC_ACCOUNTING_INFORMATION jobBasicAcctInfo;
                     uint length;
-                    CheckWin32Result(PInvoke.QueryInformationJobObject(job.JobHandle, JOBOBJECTINFOCLASS.JobObjectBasicAccountingInformation,
+                    CheckWin32Result(PInvoke.QueryInformationJobObject(job.Handle, JOBOBJECTINFOCLASS.JobObjectBasicAccountingInformation,
                         &jobBasicAcctInfo, (uint)Marshal.SizeOf<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>(), &length));
                     Debug.Assert((uint)Marshal.SizeOf<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>() == length);
 
@@ -313,7 +314,7 @@ internal static class Win32JobModule
                     else if (job.IsTimedOut)
                     {
                         logger.TraceInformation("Clock time limit passed - terminating.");
-                        PInvoke.TerminateJobObject(job.JobHandle, 1);
+                        PInvoke.TerminateJobObject(job.Handle, 1);
                         return;
                     }
                     else
@@ -326,6 +327,6 @@ internal static class Win32JobModule
 
     public static void TerminateJob(Win32Job job, uint exitCode)
     {
-        PInvoke.TerminateJobObject(job.JobHandle, exitCode);
+        PInvoke.TerminateJobObject(job.Handle, exitCode);
     }
 }
