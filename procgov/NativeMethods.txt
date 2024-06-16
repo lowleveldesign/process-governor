@@ -13,6 +13,7 @@ DuplicateTokenEx
 GetConsoleWindow
 GetCurrentProcess
 GetExitCodeProcess
+GetNamedPipeClientProcessId
 GetProcessAffinityMask
 GetProcessGroupAffinity
 GetNumaHighestNodeNumber

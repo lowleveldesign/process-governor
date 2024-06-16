@@ -9,11 +9,6 @@ namespace ProcessGovernor;
 
 static partial class Program
 {
-#if DEBUG
-    const bool DebugOutput = true;
-#else
-    const bool DebugOutput = false;
-#endif
     public static readonly TraceSource Logger = new("[procgov]", SourceLevels.Warning);
 
     public static async Task<int> Main(string[] args)
@@ -21,6 +16,10 @@ static partial class Program
         using var cts = new CancellationTokenSource();
 
         Console.CancelKeyPress += (_, ev) => { ev.Cancel = true; cts.Cancel(); };
+
+#if !DEBUG
+            Logger.Listeners.Clear();
+#endif
 
         try
         {
@@ -34,12 +33,18 @@ static partial class Program
         }
         catch (Win32Exception ex)
         {
-            Console.Error.WriteLine("ERROR: {0}", (DebugOutput ? ex.ToString() : $"{ex.Message} (0x{ex.ErrorCode:X})"));
+            Console.Error.WriteLine($"ERROR: {ex.Message} (0x{ex.ErrorCode:X})");
+#if DEBUG
+            Console.Error.WriteLine(ex);
+#endif
             return 0xff;
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine("ERROR: {0}", (DebugOutput ? ex.ToString() : ex.Message));
+            Console.Error.WriteLine($"ERROR: {ex}");
+#if DEBUG
+            Console.Error.WriteLine(ex);
+#endif
             return 0xff;
         }
     }

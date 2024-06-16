@@ -1,4 +1,5 @@
-﻿using System;
+﻿using MessagePack;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -7,11 +8,14 @@ using System.Threading.Tasks;
 
 namespace ProcessGovernor;
 
-enum IpcMessage
-{
-    AssignJobToObject = 1,
-}
+[Union(0, typeof(AssignJobToProcess))]
+public interface IMonitorRequest { }
+
+public interface IMonitorResponse { }
+
 
 [StructLayout(LayoutKind.Sequential)]
-record struct AssignJobToObject();
+record AssignJobToProcess(int ProcessId) : IMonitorRequest;
+
+
 
