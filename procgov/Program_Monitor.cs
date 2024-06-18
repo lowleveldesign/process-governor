@@ -1,4 +1,5 @@
-﻿using System.Buffers;
+﻿using MessagePack;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
@@ -15,7 +16,7 @@ static partial class Program
     {
         try
         {
-            await StartProcgovPipe(ct);
+            await StartMonitor(ct);
             return 0;
         }
         catch (Exception ex)
@@ -24,10 +25,14 @@ static partial class Program
         }
     }
 
-    static async Task StartProcgovPipe(CancellationToken ct)
+    static async Task StartMonitor(CancellationToken ct)
     {
-        var buffer = new ArrayBufferWriter<byte>(512);
+        ConcurrentDictionary<uint, JobSettings> monitoredJobs = new();
+        
+        Task jobMonitoringTask = Task.CompletedTask;
+        // FIXME: create IOCP used to get job notifications
 
+        // FIXME: we should stop if there are no more jobs to monitor in the last,for example, 10 min.
         while (!ct.IsCancellationRequested)
         {
             // FIXME: set pipe security = current user + admins
@@ -45,28 +50,16 @@ static partial class Program
                     Logger.TraceEvent(TraceEventType.Warning, 0, $"[{PipeName}] failed to read client PID: {err:x}");
                 }
 
-                // assign to broadcast thread
-                // start 
-
-                while ()
-
-                switch ((IpcMessage)pipe.ReadByte())
+                switch (await MessagePackSerializer.DeserializeAsync<IMonitorRequest>(pipe, cancellationToken: ct))
                 {
-                    case IpcMessage.AssignJobToObject:
-                        var ss = new StreamString(pipe);
-                        var message = await ss.ReadStringAsync();
-                        Console.WriteLine($"Message received: {message}");
+                    case CreateJobForProcess createJobForProcess:
+                        Win32JobModule.CreateJobObjectAndAssignProcess
+                        // FIXME: start the monitoring task (if it's not started yet)
+                        await MessagePackSerializer.SerializeAsync(pipe, new JobAssigned(job.JobId), cancellationToken: ct);
                         break;
                     default:
                         break;
                 }
-
-                var ss = new StreamString(pipe);
-                receivedMessages.Add(await ss.ReadStringAsync());
-
-                // When running with only 1 server instance, we could do the processing here, for example:
-                // string message = ss.ReadString();
-                // Console.WriteLine($"Message received: {message}");
             }
             // IOException that is raised if the pipe is broken or disconnected.
             catch (IOException ex)

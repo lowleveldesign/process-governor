@@ -1,21 +1,26 @@
 ﻿using MessagePack;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace ProcessGovernor;
 
-[Union(0, typeof(AssignJobToProcess))]
+/* ***** Requests ***** */
+
+[Union(0, typeof(CreateJobForProcess))]
 public interface IMonitorRequest { }
 
+[MessagePackObject]
+public record CreateJobForProcess(
+    [property: Key(0)] int ProcessId,
+    [property: Key(1)] JobSettings JobSettings,
+    [property: Key(2)] bool RequestNotifications
+) : IMonitorRequest;
+
+/* ***** Responses ***** */
+
+[Union(0, typeof(JobAssigned))]
 public interface IMonitorResponse { }
 
-
-[StructLayout(LayoutKind.Sequential)]
-record AssignJobToProcess(int ProcessId) : IMonitorRequest;
-
-
+[MessagePackObject]
+public record JobAssigned(
+    [property: Key(0)] int JobId
+) : IMonitorResponse;
 
