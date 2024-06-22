@@ -1,8 +1,5 @@
-using System.Text;
 using System.Diagnostics;
 using Windows.Win32;
-using Windows.Win32.System.Threading;
-using Microsoft.Win32.SafeHandles;
 using System.Runtime.InteropServices;
 using static ProcessGovernor.NtApi;
 
@@ -10,9 +7,9 @@ namespace ProcessGovernor;
 
 sealed class Win32Process(SafeHandle processHandle, SafeHandle mainThreadHandle, uint processId) : IDisposable
 {
-    public SafeHandle ProcessHandle => processHandle;
+    public SafeHandle Handle => processHandle;
 
-    public uint ProcessId => processId;
+    public uint Id => processId;
 
     public SafeHandle MainThreadHandle => mainThreadHandle;
 

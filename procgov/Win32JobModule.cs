@@ -7,7 +7,6 @@ using Windows.Win32.System.JobObjects;
 using System.ComponentModel;
 using Windows.Win32.System.SystemInformation;
 using Windows.Win32.Storage.FileSystem;
-using System.Diagnostics.CodeAnalysis;
 using static ProcessGovernor.NtApi;
 
 namespace ProcessGovernor;
@@ -44,7 +43,7 @@ static class Win32JobModule
         return $"procgov-{Guid.NewGuid():D}";
     }
 
-    public static unsafe Win32Job CreateJobObject(string jobName, long clockTimeLimitInMilliseconds)
+    public static unsafe Win32Job CreateJob(string jobName, long clockTimeLimitInMilliseconds)
     {
         var securityAttributes = new SECURITY_ATTRIBUTES();
         securityAttributes.nLength = (uint)Marshal.SizeOf(securityAttributes);
@@ -53,6 +52,18 @@ static class Win32JobModule
         var job = new Win32Job(hJob, jobName, null, clockTimeLimitInMilliseconds);
 
         return job;
+    }
+
+    public static unsafe Win32Job OpenJob(string jobName)
+    {
+        var jobHandle = PInvoke.OpenJobObject(PInvoke.JOB_OBJECT_QUERY | PInvoke.JOB_OBJECT_SET_ATTRIBUTES |
+            PInvoke.JOB_OBJECT_TERMINATE | PInvoke.JOB_OBJECT_ASSIGN_PROCESS | (uint)FILE_ACCESS_RIGHTS.SYNCHRONIZE,
+            false, $"Local\\{jobName}");
+        if (jobHandle.IsInvalid)
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error());
+        }
+        return new Win32Job(jobHandle, jobName);
     }
 
     public static void AssignProcess(Win32Job job, SafeHandle processHandle, bool propagateOnChildProcesses)
@@ -64,19 +75,11 @@ static class Win32JobModule
         CheckWin32Result(PInvoke.AssignProcessToJobObject(job.Handle, processHandle));
     }
 
-    public static unsafe bool TryOpen(string jobName, [NotNullWhen(true)] out SafeHandle jobHandle)
-    {
-        jobHandle = PInvoke.OpenJobObject(PInvoke.JOB_OBJECT_QUERY | PInvoke.JOB_OBJECT_SET_ATTRIBUTES |
-            PInvoke.JOB_OBJECT_TERMINATE | PInvoke.JOB_OBJECT_ASSIGN_PROCESS | (uint)FILE_ACCESS_RIGHTS.SYNCHRONIZE,
-            false, $"Local\\{jobName}");
-        return !jobHandle.IsInvalid;
-    }
-
     public static unsafe int AssignIOCompletionPort(Win32Job job, SafeHandle iocp)
     {
         var assocInfo = new JOBOBJECT_ASSOCIATE_COMPLETION_PORT
         {
-            CompletionKey = (void *)job.NativeHandle,
+            CompletionKey = (void*)job.NativeHandle,
             CompletionPort = new HANDLE(iocp.DangerousGetHandle())
         };
         uint size = (uint)Marshal.SizeOf(assocInfo);

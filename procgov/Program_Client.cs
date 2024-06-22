@@ -1,6 +1,5 @@
 ﻿using System.Diagnostics;
 using System.Reflection;
-using System.Runtime.InteropServices;
 using System.Text;
 using Windows.Win32;
 using Windows.Win32.Foundation;
@@ -15,6 +14,8 @@ static partial class Program
 {
     public static int Execute(LaunchProcess launch, CancellationToken ct)
     {
+        var jobSettings = launch.JobSettings;
+
         if (launch.NoGui)
         {
             PInvoke.ShowWindow(PInvoke.GetConsoleWindow(), SHOW_WINDOW_CMD.SW_HIDE);
@@ -25,29 +26,44 @@ static partial class Program
             Logger.Listeners.Add(new ConsoleTraceListener());
 
             ShowHeader();
-            ShowLimits(launch.JobSettings);
+            ShowLimits(jobSettings);
         }
 
         using var targetProcess = CreateSuspendedProcess(launch);
 
-        var job = CreateAndAssignJobToProcess(targetProcess.ProcessHandle, launch.JobSettings);
+        using var job = Win32JobModule.CreateJob(Win32JobModule.GetNewJobName(), jobSettings.ClockTimeLimitInMilliseconds);
+        Debug.Assert(job != null);
 
-        // FIXME try to open a named pipe and start the monitor if it's not there
+        using (var _ = new ScopedAccountPrivileges(["SeDebugPrivilege"]))
+        {
+            // FIXME: I would like to remove this limitation
+            if (!IsRemoteProcessTheSameBitness(targetProcess.Handle))
+            {
+                throw new ArgumentException($"The target process has different bitness than procgov. Please use " +
+                    "procgov32 for 32-bit processes and procgov64 for 64-bit processes");
+            }
 
-        // Launch monitor process if it's not already running
-        //using var monitorProcess = Process.Start(new ProcessStartInfo
-        //{
-        //    Arguments = $"{Environment.ProcessPath} --monitor",
-        //    CreateNoWindow = false
-        //});
+            // FIXME try to open a named pipe and start the monitor if it's not there
 
-        // FIXME: subscribe and wait for notifications asynchronously
+            // Launch monitor process if it's not already running
+            //using var monitorProcess = Process.Start(new ProcessStartInfo
+            //{
+            //    Arguments = $"{Environment.ProcessPath} --monitor",
+            //    CreateNoWindow = false
+            //});
 
-        foreach (var accountPrivilege in AccountPrivilegeModule.EnablePrivileges(targetProcess.ProcessHandle, launch.Privileges).Where(
+            // FIXME: subscribe and wait for notifications asynchronously
+
+            Win32JobModule.SetLimits(job, jobSettings, ProcessModule.GetSystemOrProcessorGroupAffinity(targetProcess.Handle));
+
+            Win32JobModule.AssignProcess(job, targetProcess.Handle, jobSettings.PropagateOnChildProcesses);
+        }
+
+        foreach (var accountPrivilege in AccountPrivilegeModule.EnablePrivileges(targetProcess.Handle, launch.Privileges).Where(
             ap => ap.Result != (int)WIN32_ERROR.NO_ERROR))
         {
             Logger.TraceEvent(TraceEventType.Error, 0, $"Setting privilege {accountPrivilege.PrivilegeName} for process " +
-                $"{targetProcess.ProcessId} failed - 0x{accountPrivilege.Result:x}");
+                $"{targetProcess.Id} failed - 0x{accountPrivilege.Result:x}");
 
         }
 
@@ -78,7 +94,7 @@ static partial class Program
             Win32JobModule.TerminateJob(job, 0x1f);
         }
 
-        PInvoke.GetExitCodeProcess(targetProcess.ProcessHandle, out var exitCode);
+        PInvoke.GetExitCodeProcess(targetProcess.Handle, out var exitCode);
 
         return (int)exitCode;
 
@@ -136,26 +152,6 @@ static partial class Program
 
                 return envEntries.ToString();
             }
-        }
-
-        static Win32Job CreateAndAssignJobToProcess(SafeHandle targetProcessHandle, JobSettings jobSettings)
-        {
-            using var _ = new ScopedAccountPrivileges(["SeDebugPrivilege"]);
-
-            // FIXME: I would like to remove this limitation
-            if (!IsRemoteProcessTheSameBitness(targetProcessHandle))
-            {
-                throw new ArgumentException($"The target process has different bitness than procgov. Please use " +
-                    "procgov32 for 32-bit processes and procgov64 for 64-bit processes");
-            }
-
-            var job = Win32JobModule.CreateJobObject(Win32JobModule.GetNewJobName(), jobSettings.ClockTimeLimitInMilliseconds);
-            Debug.Assert(job != null);
-            Win32JobModule.AssignProcess(job, targetProcessHandle, jobSettings.PropagateOnChildProcesses);
-
-            Win32JobModule.SetLimits(job, jobSettings, ProcessModule.GetSystemOrProcessorGroupAffinity(targetProcessHandle));
-
-            return job;
         }
     }
 
