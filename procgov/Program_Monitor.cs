@@ -6,6 +6,7 @@ using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using Windows.Win32;
 using Windows.Win32.System.Threading;
+using Windows.Win32.Foundation;
 using static ProcessGovernor.NtApi;
 
 namespace ProcessGovernor;
@@ -32,8 +33,9 @@ static partial class Program
     {
         List<Win32Job> monitoredJobs = [];
 
+        using var iocpHandle = CheckWin32Result(PInvoke.CreateIoCompletionPort(new SafeFileHandle(HANDLE.INVALID_HANDLE_VALUE, true),
+                                                    new SafeFileHandle(nint.Zero, true), nuint.Zero, 0));
         Task jobMonitoringTask = Task.CompletedTask;
-        // FIXME: create IOCP used to get job notifications
 
         // FIXME: we should stop if there are no more jobs to monitor in the last,for example, 10 min.
         while (!ct.IsCancellationRequested)
@@ -57,18 +59,20 @@ static partial class Program
                 {
                     case MonitorJob monitorJob:
                         var job = Win32JobModule.TryOpen(monitorJob.JobName, out var jobHandle);
+                        Win32JobModule.AssignIOCompletionPort(job, iocpHandle);
+                        // FIXME assign job to the process
                         monitoredJobs.Add(job);
                         await MessagePackSerializer.SerializeAsync(pipe, new JobMonitored(), cancellationToken: ct);
                         break;
-                    case IsProcessGoverned isProcessGoverned:
-                        using (var processHandle = OpenProcess(createJobForProcess.ProcessId))
-                        {
-                            var job = Win32JobModule.TryOpen();
-                            Win32JobModule.SetLimits(job, createJobForProcess.JobSettings, );
-                            // FIXME: start the monitoring task (if it's not started yet)
-                            await MessagePackSerializer.SerializeAsync(pipe, new JobAssigned(job.JobId), cancellationToken: ct);
-                            break;
-                        }
+                    //    case IsProcessGoverned isProcessGoverned:
+                    //        using (var processHandle = OpenProcess(createJobForProcess.ProcessId))
+                    //        {
+                    //            var job = Win32JobModule.TryOpen();
+                    //            Win32JobModule.SetLimits(job, createJobForProcess.JobSettings, );
+                    //            // FIXME: start the monitoring task (if it's not started yet)
+                    //            await MessagePackSerializer.SerializeAsync(pipe, new JobAssigned(job.JobId), cancellationToken: ct);
+                    //            break;
+                    //        }
                     default:
                         break;
                 }
@@ -85,20 +89,34 @@ static partial class Program
             }
         }
 
-        SafeFileHandle OpenProcess(int pid)
+        static Task MonitoringTask()
         {
-            using var currentProcessHandle = PInvoke.GetCurrentProcess_SafeHandle();
-            var dbgpriv = AccountPrivilegeModule.EnablePrivileges((uint)Environment.ProcessId, currentProcessHandle, ["SeDebugPrivilege"],
-                            TraceEventType.Information);
-            try
+            var shouldTerminate = false;
+
+            // terminate if there are no jobs
+            while (!shouldTerminate)
             {
-                return CheckWin32Result(PInvoke.OpenProcess_SafeHandle(PROCESS_ACCESS_RIGHTS.PROCESS_QUERY_INFORMATION |
-                    PROCESS_ACCESS_RIGHTS.PROCESS_SET_QUOTA | PROCESS_ACCESS_RIGHTS.PROCESS_TERMINATE |
-                    PROCESS_ACCESS_RIGHTS.PROCESS_VM_READ, false, (uint)pid));
-            }
-            finally
-            {
-                AccountPrivilegeModule.RestorePrivileges((uint)Environment.ProcessId, currentProcessHandle, dbgpriv, TraceEventType.Information);
+                if (!PInvoke.GetQueuedCompletionStatus(, out var msgIdentifier,
+                    out _, out var lpOverlapped, 100 /* ms */))
+                {
+                    if (Marshal.GetLastWin32Error() == 735 /* ERROR_ABANDONED_WAIT_0 */)
+                    {
+                        throw new Win32Exception();
+                    }
+
+                    // otherwise timeout
+                    if (ClockTimeLimitInMilliseconds > 0 &&
+                        processRunningTime.ElapsedMilliseconds > ClockTimeLimitInMilliseconds)
+                    {
+                        logger.TraceEvent(TraceEventType.Information, 0, "Clock time limit passed - terminating.");
+                        PInvoke.TerminateJobObject(hJob, 1);
+                        shouldTerminate = true;
+                    }
+                }
+                else
+                {
+                    shouldTerminate = LogCompletionPacketAndCheckIfTerminating(msgIdentifier, (IntPtr)lpOverlapped);
+                }
             }
         }
     }
