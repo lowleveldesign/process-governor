@@ -1,7 +1,13 @@
 ﻿using System.Diagnostics;
 using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Text;
 using Windows.Win32;
+using Windows.Win32.Foundation;
+using Windows.Win32.System.Threading;
 using Windows.Win32.UI.WindowsAndMessaging;
+using static ProcessGovernor.NtApi;
+using SafeFileHandle = Microsoft.Win32.SafeHandles.SafeFileHandle;
 
 namespace ProcessGovernor;
 
@@ -22,15 +28,30 @@ static partial class Program
             ShowLimits(launch.JobSettings);
         }
 
-        using var targetProcess = ProcessModule.CreateSuspendedProcess(launch);
+        using var targetProcess = CreateSuspendedProcess(launch);
 
-        // Launch monitor process
-        using var monitorProcess = Process.Start(Environment.ProcessPath!, "--monitor");
+        var job = CreateAndAssignJobToProcess(targetProcess.ProcessHandle, launch.JobSettings);
 
-        // FIXME: wait for the named pipe and use messages to configure the job settings
-        // FIXME: wait for message asynchronously
+        // FIXME try to open a named pipe and start the monitor if it's not there
 
-        ProcessModule.ResumeProcess(targetProcess);
+        // Launch monitor process if it's not already running
+        //using var monitorProcess = Process.Start(new ProcessStartInfo
+        //{
+        //    Arguments = $"{Environment.ProcessPath} --monitor",
+        //    CreateNoWindow = false
+        //});
+
+        // FIXME: subscribe and wait for notifications asynchronously
+
+        foreach (var accountPrivilege in AccountPrivilegeModule.EnablePrivileges(targetProcess.ProcessHandle, launch.Privileges).Where(
+            ap => ap.Result != (int)WIN32_ERROR.NO_ERROR))
+        {
+            Logger.TraceEvent(TraceEventType.Error, 0, $"Setting privilege {accountPrivilege.PrivilegeName} for process " +
+                $"{targetProcess.ProcessId} failed - 0x{accountPrivilege.Result:x}");
+
+        }
+
+        CheckWin32Result(PInvoke.ResumeThread(targetProcess.MainThreadHandle));
 
         if (launch.ExitBehavior == ExitBehavior.DontWaitForJobCompletion)
         {
@@ -51,14 +72,91 @@ static partial class Program
         }
 
         Win32JobModule.WaitForTheJobToComplete(job, ct);
-        var exitCode = job.FirstProcessHandle is { } h && !h.IsInvalid ? ProcessModule.GetProcessExitCode(h) : 0;
 
         if (ct.IsCancellationRequested && launch.ExitBehavior == ExitBehavior.TerminateJobOnExit)
         {
-            Win32JobModule.TerminateJob(job, exitCode);
+            Win32JobModule.TerminateJob(job, 0x1f);
         }
 
+        PInvoke.GetExitCodeProcess(targetProcess.ProcessHandle, out var exitCode);
+
         return (int)exitCode;
+
+
+        static unsafe Win32Process CreateSuspendedProcess(LaunchProcess exec)
+        {
+            var pi = new PROCESS_INFORMATION();
+            var si = new STARTUPINFOW();
+            var processCreationFlags = PROCESS_CREATION_FLAGS.CREATE_UNICODE_ENVIRONMENT | PROCESS_CREATION_FLAGS.CREATE_SUSPENDED;
+            if (exec.NewConsole)
+            {
+                processCreationFlags |= PROCESS_CREATION_FLAGS.CREATE_NEW_CONSOLE;
+            }
+
+            fixed (char* penv = GetEnvironmentString(exec.Environment))
+            {
+                var args = (string.Join(" ", exec.Procargs.Select((string s) => s.Contains(' ') ? "\"" + s + "\"" : s)) + '\0').ToCharArray();
+                fixed (char* pargs = args)
+                {
+                    var argsSpan = new Span<char>(pargs, args.Length);
+                    CheckWin32Result(PInvoke.CreateProcess(null, ref argsSpan, null, null, false, processCreationFlags,
+                        penv, null, si, out pi));
+                }
+            }
+
+            return new Win32Process(new SafeFileHandle(pi.hProcess, true), new SafeFileHandle(pi.hThread, true), pi.dwProcessId);
+
+
+            static string? GetEnvironmentString(IDictionary<string, string> additionalEnvironmentVars)
+            {
+                if (additionalEnvironmentVars.Count == 0)
+                {
+                    return null;
+                }
+
+                StringBuilder envEntries = new();
+                foreach (string env in Environment.GetEnvironmentVariables().Keys)
+                {
+                    if (additionalEnvironmentVars.ContainsKey(env))
+                    {
+                        continue; // overwrite existing env
+                    }
+
+                    envEntries.Append(env).Append('=').Append(
+                        Environment.GetEnvironmentVariable(env)).Append('\0');
+                }
+
+                foreach (var kv in additionalEnvironmentVars)
+                {
+                    envEntries.Append(kv.Key).Append('=').Append(
+                        kv.Value).Append('\0');
+                }
+
+                envEntries.Append('\0');
+
+                return envEntries.ToString();
+            }
+        }
+
+        static Win32Job CreateAndAssignJobToProcess(SafeHandle targetProcessHandle, JobSettings jobSettings)
+        {
+            using var _ = new ScopedAccountPrivileges(["SeDebugPrivilege"]);
+
+            // FIXME: I would like to remove this limitation
+            if (!IsRemoteProcessTheSameBitness(targetProcessHandle))
+            {
+                throw new ArgumentException($"The target process has different bitness than procgov. Please use " +
+                    "procgov32 for 32-bit processes and procgov64 for 64-bit processes");
+            }
+
+            var job = Win32JobModule.CreateJobObject(Win32JobModule.GetNewJobName(), jobSettings.ClockTimeLimitInMilliseconds);
+            Debug.Assert(job != null);
+            Win32JobModule.AssignProcess(job, targetProcessHandle, jobSettings.PropagateOnChildProcesses);
+
+            Win32JobModule.SetLimits(job, jobSettings, ProcessModule.GetSystemOrProcessorGroupAffinity(targetProcessHandle));
+
+            return job;
+        }
     }
 
     static void ShowHeader()

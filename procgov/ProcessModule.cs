@@ -26,89 +26,7 @@ static class ProcessModule
 {
     private static readonly TraceSource logger = Program.Logger;
 
-
-    public static unsafe Win32Process CreateSuspendedProcess(LaunchProcess exec)
-    {
-        var pi = new PROCESS_INFORMATION();
-        var si = new STARTUPINFOW();
-        var processCreationFlags = PROCESS_CREATION_FLAGS.CREATE_UNICODE_ENVIRONMENT | PROCESS_CREATION_FLAGS.CREATE_SUSPENDED;
-        if (exec.NewConsole)
-        {
-            processCreationFlags |= PROCESS_CREATION_FLAGS.CREATE_NEW_CONSOLE;
-        }
-
-        fixed (char* penv = GetEnvironmentString(exec.Environment))
-        {
-            var args = (string.Join(" ", exec.Procargs.Select((string s) => s.Contains(' ') ? "\"" + s + "\"" : s)) + '\0').ToCharArray();
-            fixed (char* pargs = args)
-            {
-                var argsSpan = new Span<char>(pargs, args.Length);
-                CheckWin32Result(PInvoke.CreateProcess(null, ref argsSpan, null, null, false, processCreationFlags,
-                    penv, null, si, out pi));
-            }
-        }
-
-        return new Win32Process(new SafeFileHandle(pi.hProcess, true), new SafeFileHandle(pi.hThread, true), pi.dwProcessId);
-    }
-
-    public static void ResumeProcess(Win32Process process)
-    {
-        CheckWin32Result(PInvoke.ResumeThread(process.MainThreadHandle));
-    }
-
     /*
-    public static Win32Job AssignProcessToJobObject(int pid, Dictionary<string, string> environment, JobSettings session)
-    {
-        var currentProcessId = (uint)Environment.ProcessId;
-        using var currentProcessHandle = PInvoke.GetCurrentProcess_SafeHandle();
-        var dbgpriv = AccountPrivilegeModule.EnablePrivileges(currentProcessId, currentProcessHandle, ["SeDebugPrivilege"],
-                        TraceEventType.Information);
-
-        try
-        {
-            using var targetProcessHandle = CheckWin32Result(PInvoke.OpenProcess_SafeHandle(PROCESS_ACCESS_RIGHTS.PROCESS_QUERY_INFORMATION |
-                PROCESS_ACCESS_RIGHTS.PROCESS_SET_QUOTA | PROCESS_ACCESS_RIGHTS.PROCESS_DUP_HANDLE | PROCESS_ACCESS_RIGHTS.PROCESS_TERMINATE |
-                PROCESS_ACCESS_RIGHTS.PROCESS_VM_READ, false, (uint)pid));
-
-            if (!IsRemoteProcessTheSameBitness(targetProcessHandle))
-            {
-                throw new ArgumentException($"The target process has different bitness than procgov. Please use " +
-                    "procgov32 for 32-bit processes and procgov64 for 64-bit processes");
-            }
-
-            Win32Job OpenOrCreateJob()
-            {
-                if (GetProcessEnvironmentVariable(targetProcessHandle, JobNameEnvironmentVariable) is string jobName &&
-                    Win32JobModule.TryOpen(jobName, out var jobHandle) &&
-                    CheckWin32Result(PInvoke.IsProcessInJob(targetProcessHandle, jobHandle, out var jobNameMatches)) && jobNameMatches)
-                {
-                    SetProcessEnvironmentVariables(pid, environment);
-                    return new Win32Job(jobHandle, jobName, null, session.ClockTimeLimitInMilliseconds);
-                }
-                else
-                {
-                    jobName = GetNewJobName();
-                    session.AdditionalEnvironmentVars.Add(JobNameEnvironmentVariable, jobName);
-                    SetProcessEnvironmentVariables(pid, session.AdditionalEnvironmentVars);
-
-                    return Win32JobModule.CreateJobObjectAndAssignProcess(targetProcessHandle, jobName,
-                        session.PropagateOnChildProcesses, session.ClockTimeLimitInMilliseconds);
-                }
-            }
-
-            var job = OpenOrCreateJob();
-            Debug.Assert(job != null);
-            Win32JobModule.SetLimits(job, session, GetSystemOrProcessorGroupAffinity(targetProcessHandle, session));
-
-            AccountPrivilegeModule.EnablePrivileges((uint)pid, targetProcessHandle, session.Privileges, TraceEventType.Error);
-
-            return job;
-        }
-        finally
-        {
-            AccountPrivilegeModule.RestorePrivileges(currentProcessId, currentProcessHandle, dbgpriv, TraceEventType.Information);
-        }
-    }
 
     public static Win32Job AssignProcessesToJobObject(int[] pids, JobSettings session)
     {
@@ -248,7 +166,7 @@ static class ProcessModule
     }
     */
 
-    private static ulong GetSystemOrProcessorGroupAffinity(SafeHandle processHandle)
+    public static ulong GetSystemOrProcessorGroupAffinity(SafeHandle processHandle)
     {
         CheckWin32Result(PInvoke.GetProcessAffinityMask(processHandle, out _, out var sysaff));
         if (sysaff == 0)
@@ -257,46 +175,5 @@ static class ProcessModule
                 "Procgov will not able to set the process affinity.");
         }
         return sysaff;
-    }
-
-    private static string GetNewJobName()
-    {
-        return $"procgov-{Guid.NewGuid():D}";
-    }
-
-    private static string? GetEnvironmentString(IDictionary<string, string> additionalEnvironmentVars)
-    {
-        if (additionalEnvironmentVars.Count == 0)
-        {
-            return null;
-        }
-
-        StringBuilder envEntries = new();
-        foreach (string env in Environment.GetEnvironmentVariables().Keys)
-        {
-            if (additionalEnvironmentVars.ContainsKey(env))
-            {
-                continue; // overwrite existing env
-            }
-
-            envEntries.Append(env).Append('=').Append(
-                Environment.GetEnvironmentVariable(env)).Append('\0');
-        }
-
-        foreach (var kv in additionalEnvironmentVars)
-        {
-            envEntries.Append(kv.Key).Append('=').Append(
-                kv.Value).Append('\0');
-        }
-
-        envEntries.Append('\0');
-
-        return envEntries.ToString();
-    }
-
-    public static uint GetProcessExitCode(SafeHandle processHandle)
-    {
-        PInvoke.GetExitCodeProcess(processHandle, out var exitCode);
-        return exitCode;
     }
 }

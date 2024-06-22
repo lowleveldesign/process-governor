@@ -16,10 +16,12 @@ sealed class Win32Job(SafeHandle jobHandle, string jobName, SafeHandle? firstPro
 {
     private readonly DateTime startTimeUtc = DateTime.UtcNow;
 
-    public bool IsTimedOut => clockTimeLimitInMilliseconds > 0 
+    public bool IsTimedOut => clockTimeLimitInMilliseconds > 0
         && DateTime.UtcNow.Subtract(startTimeUtc).TotalMilliseconds >= clockTimeLimitInMilliseconds;
 
     public SafeHandle Handle => jobHandle;
+
+    public nint NativeHandle => jobHandle.DangerousGetHandle();
 
     public string JobName => jobName;
 
@@ -37,18 +39,9 @@ static class Win32JobModule
 {
     private static readonly TraceSource logger = Program.Logger;
 
-    public static unsafe Win32Job CreateJobObjectAndAssignProcess(SafeHandle processHandle, string jobName, bool propagateOnChildProcesses,
-        long clockTimeLimitInMilliseconds)
+    public static string GetNewJobName()
     {
-        var securityAttributes = new SECURITY_ATTRIBUTES();
-        securityAttributes.nLength = (uint)Marshal.SizeOf(securityAttributes);
-
-        var hJob = CheckWin32Result(PInvoke.CreateJobObject(securityAttributes, $"Local\\{jobName}"));
-        var job = new Win32Job(hJob, jobName, processHandle, clockTimeLimitInMilliseconds);
-
-        AssignProcess(job, processHandle, propagateOnChildProcesses);
-
-        return job;
+        return $"procgov-{Guid.NewGuid():D}";
     }
 
     public static unsafe Win32Job CreateJobObject(string jobName, long clockTimeLimitInMilliseconds)
@@ -77,6 +70,21 @@ static class Win32JobModule
             PInvoke.JOB_OBJECT_TERMINATE | PInvoke.JOB_OBJECT_ASSIGN_PROCESS | (uint)FILE_ACCESS_RIGHTS.SYNCHRONIZE,
             false, $"Local\\{jobName}");
         return !jobHandle.IsInvalid;
+    }
+
+    public static unsafe int AssignIOCompletionPort(Win32Job job, SafeHandle iocp)
+    {
+        var assocInfo = new JOBOBJECT_ASSOCIATE_COMPLETION_PORT
+        {
+            CompletionKey = (void *)job.NativeHandle,
+            CompletionPort = new HANDLE(iocp.DangerousGetHandle())
+        };
+        uint size = (uint)Marshal.SizeOf(assocInfo);
+        if (!PInvoke.SetInformationJobObject(job.Handle, JOBOBJECTINFOCLASS.JobObjectAssociateCompletionPortInformation, &assocInfo, size))
+        {
+            return Marshal.GetLastWin32Error();
+        }
+        return 0;
     }
 
     public static void SetLimits(Win32Job job, JobSettings session, ulong systemOrProcessorGroupAffinityMask)

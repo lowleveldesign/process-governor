@@ -4,23 +4,29 @@ namespace ProcessGovernor;
 
 /* ***** Requests ***** */
 
-[Union(0, typeof(CreateJobForProcess))]
+[Union(0, typeof(MonitorJob))]
+[Union(0, typeof(IsProcessGoverned))]
 public interface IMonitorRequest { }
 
 [MessagePackObject]
-public record CreateJobForProcess(
-    [property: Key(0)] int ProcessId,
-    [property: Key(1)] JobSettings JobSettings,
-    [property: Key(2)] bool RequestNotifications
-) : IMonitorRequest;
+public record MonitorJob([property: Key(0)] string JobName) : IMonitorRequest;
+
+[MessagePackObject]
+public record IsProcessGoverned([property: Key(0)] int ProcessId) : IMonitorRequest;
 
 /* ***** Responses ***** */
 
-[Union(0, typeof(JobAssigned))]
+[Union(0, typeof(JobMonitored))]
+[Union(1, typeof(ProcessStatus))]
 public interface IMonitorResponse { }
 
 [MessagePackObject]
-public record JobAssigned(
-    [property: Key(0)] int JobId
-) : IMonitorResponse;
+public record JobMonitored([property: Key(0)] int HResult) : IMonitorResponse;
+
+[MessagePackObject]
+public record ProcessStatus([property: Key(0)] string JobName) : IMonitorResponse;
+
+/* ***** Notifications ***** */
+
+
 

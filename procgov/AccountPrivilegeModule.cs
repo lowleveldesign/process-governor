@@ -10,6 +10,36 @@ namespace ProcessGovernor;
 
 internal record class AccountPrivilege(string PrivilegeName, int Result, TOKEN_PRIVILEGES ReplacedPrivilege);
 
+internal sealed class ScopedAccountPrivileges : IDisposable
+{
+    private readonly List<AccountPrivilege> accountPrivileges;
+
+    public ScopedAccountPrivileges(IEnumerable<string> privilegeNames)
+    {
+        var pid = (uint)Environment.ProcessId;
+        using var processHandle = PInvoke.GetCurrentProcess_SafeHandle();
+
+        accountPrivileges = AccountPrivilegeModule.EnablePrivileges(processHandle, privilegeNames);
+
+        foreach (var accountPrivilege in accountPrivileges.Where(ap => ap.Result != (int)WIN32_ERROR.NO_ERROR))
+        {
+            Program.Logger.TraceInformation("Acquiring privilege {accountPrivilege.PrivilegeName} for process " +
+                $"{pid} failed - 0x{accountPrivilege.Result:x}");
+        }
+    }
+
+    public void Dispose()
+    {
+        var pid = (uint)Environment.ProcessId;
+        using var processHandle = PInvoke.GetCurrentProcess_SafeHandle();
+
+        foreach (var (privilegeName, winError) in AccountPrivilegeModule.RestorePrivileges(processHandle, accountPrivileges))
+        {
+            Program.Logger.TraceInformation($"Error while reverting the {privilegeName} privilege for process {pid}: 0x{winError:x}");
+        }
+    }
+}
+
 internal unsafe static class AccountPrivilegeModule
 {
     private static readonly TraceSource logger = Program.Logger;
@@ -21,8 +51,7 @@ internal unsafe static class AccountPrivilegeModule
         return principal.IsInRole(WindowsBuiltInRole.Administrator);
     }
 
-    internal static List<AccountPrivilege> EnablePrivileges(uint pid, SafeHandle processHandle,
-        IEnumerable<string> privilegeNames, TraceEventType errorSeverity)
+    internal static List<AccountPrivilege> EnablePrivileges(SafeHandle processHandle, IEnumerable<string> privilegeNames)
     {
         CheckWin32Result(PInvoke.OpenProcessToken(processHandle, TOKEN_ACCESS_MASK.TOKEN_QUERY | TOKEN_ACCESS_MASK.TOKEN_ADJUST_PRIVILEGES,
             out var tokenHandle));
@@ -39,26 +68,11 @@ internal unsafe static class AccountPrivilegeModule
                 };
                 var previousPrivileges = new TOKEN_PRIVILEGES();
                 uint length = 0;
-                if (PInvoke.AdjustTokenPrivileges(tokenHandle, false, privileges, (uint)Marshal.SizeOf(previousPrivileges), &previousPrivileges, &length))
-                {
-                    Debug.Assert(length == Marshal.SizeOf(previousPrivileges));
-                    var result = Marshal.GetLastWin32Error();
-                    if (result != (int)WIN32_ERROR.NO_ERROR)
-                    {
-                        logger.TraceEvent(errorSeverity, 0, $"Setting privilege {privilegeName} for process {pid} failed - 0x{result:x} " +
-                            "(probably privilege is not available)");
-                    }
-                    return new AccountPrivilege(privilegeName, result, previousPrivileges);
-                }
-                else
-                {
-                    var result = Marshal.GetLastWin32Error();
-                    if (result != (int)WIN32_ERROR.NO_ERROR)
-                    {
-                        logger.TraceEvent(errorSeverity, 0, $"Setting privilege {privilegeName} for process {pid} failed - 0x{result:x} ");
-                    }
-                    return new AccountPrivilege(privilegeName, result, new TOKEN_PRIVILEGES { PrivilegeCount = 0 });
-                }
+                var result = PInvoke.AdjustTokenPrivileges(tokenHandle, false, privileges, (uint)Marshal.SizeOf(previousPrivileges), &previousPrivileges, &length);
+                var lastWin32Error = Marshal.GetLastWin32Error();
+
+                return result ? new AccountPrivilege(privilegeName, lastWin32Error, previousPrivileges) :
+                    new AccountPrivilege(privilegeName, lastWin32Error, new TOKEN_PRIVILEGES { PrivilegeCount = 0 });
             }).ToList();
         }
         finally
@@ -67,22 +81,18 @@ internal unsafe static class AccountPrivilegeModule
         }
     }
 
-    internal static void RestorePrivileges(uint pid, SafeHandle processHandle, List<AccountPrivilege> privileges,
-        TraceEventType errorSeverity)
+    // does not throw an exception
+    internal static IEnumerable<(string, int)> RestorePrivileges(SafeHandle processHandle, List<AccountPrivilege> privileges)
     {
         if (PInvoke.OpenProcessToken(processHandle, TOKEN_ACCESS_MASK.TOKEN_ADJUST_PRIVILEGES, out var tokenHandle))
         {
             try
             {
-                foreach (var priv in privileges.Where(priv => priv.Result == (int)WIN32_ERROR.NO_ERROR))
+                return privileges.Where(priv => priv.Result == (int)WIN32_ERROR.NO_ERROR).Select(priv =>
                 {
-                    if (!PInvoke.AdjustTokenPrivileges(tokenHandle, false, priv.ReplacedPrivilege, 0, null, null))
-                    {
-                        int winerr = Marshal.GetLastWin32Error();
-                        logger.TraceEvent(errorSeverity, 0,
-                            $"Error while reverting the {priv.PrivilegeName} privilege for process {pid}: 0x{winerr:x}");
-                    }
-                }
+                    return PInvoke.AdjustTokenPrivileges(tokenHandle, false, priv.ReplacedPrivilege, 0, null, null) ?
+                        (priv.PrivilegeName, (int)WIN32_ERROR.NO_ERROR) : (priv.PrivilegeName, Marshal.GetLastWin32Error());
+                });
             }
             finally
             {
@@ -92,8 +102,7 @@ internal unsafe static class AccountPrivilegeModule
         else
         {
             int winerr = Marshal.GetLastWin32Error();
-            logger.TraceEvent(errorSeverity, 0, $"Error while reverting the privileges for process {pid}: 0x{winerr:x}");
+            return [("ProcessToken", winerr)];
         }
     }
-
 }

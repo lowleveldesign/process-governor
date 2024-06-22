@@ -1,9 +1,12 @@
 ﻿using MessagePack;
+using Microsoft.Win32.SafeHandles;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using Windows.Win32;
+using Windows.Win32.System.Threading;
+using static ProcessGovernor.NtApi;
 
 namespace ProcessGovernor;
 
@@ -27,8 +30,8 @@ static partial class Program
 
     static async Task StartMonitor(CancellationToken ct)
     {
-        ConcurrentDictionary<uint, JobSettings> monitoredJobs = new();
-        
+        List<Win32Job> monitoredJobs = [];
+
         Task jobMonitoringTask = Task.CompletedTask;
         // FIXME: create IOCP used to get job notifications
 
@@ -52,11 +55,20 @@ static partial class Program
 
                 switch (await MessagePackSerializer.DeserializeAsync<IMonitorRequest>(pipe, cancellationToken: ct))
                 {
-                    case CreateJobForProcess createJobForProcess:
-                        Win32JobModule.CreateJobObjectAndAssignProcess
-                        // FIXME: start the monitoring task (if it's not started yet)
-                        await MessagePackSerializer.SerializeAsync(pipe, new JobAssigned(job.JobId), cancellationToken: ct);
+                    case MonitorJob monitorJob:
+                        var job = Win32JobModule.TryOpen(monitorJob.JobName, out var jobHandle);
+                        monitoredJobs.Add(job);
+                        await MessagePackSerializer.SerializeAsync(pipe, new JobMonitored(), cancellationToken: ct);
                         break;
+                    case IsProcessGoverned isProcessGoverned:
+                        using (var processHandle = OpenProcess(createJobForProcess.ProcessId))
+                        {
+                            var job = Win32JobModule.TryOpen();
+                            Win32JobModule.SetLimits(job, createJobForProcess.JobSettings, );
+                            // FIXME: start the monitoring task (if it's not started yet)
+                            await MessagePackSerializer.SerializeAsync(pipe, new JobAssigned(job.JobId), cancellationToken: ct);
+                            break;
+                        }
                     default:
                         break;
                 }
@@ -70,6 +82,23 @@ static partial class Program
                     ex is AggregateException && ex.InnerException is TaskCanceledException))
             {
                 Debug.WriteLine("[procgov monitor] cancellation: " + ex);
+            }
+        }
+
+        SafeFileHandle OpenProcess(int pid)
+        {
+            using var currentProcessHandle = PInvoke.GetCurrentProcess_SafeHandle();
+            var dbgpriv = AccountPrivilegeModule.EnablePrivileges((uint)Environment.ProcessId, currentProcessHandle, ["SeDebugPrivilege"],
+                            TraceEventType.Information);
+            try
+            {
+                return CheckWin32Result(PInvoke.OpenProcess_SafeHandle(PROCESS_ACCESS_RIGHTS.PROCESS_QUERY_INFORMATION |
+                    PROCESS_ACCESS_RIGHTS.PROCESS_SET_QUOTA | PROCESS_ACCESS_RIGHTS.PROCESS_TERMINATE |
+                    PROCESS_ACCESS_RIGHTS.PROCESS_VM_READ, false, (uint)pid));
+            }
+            finally
+            {
+                AccountPrivilegeModule.RestorePrivileges((uint)Environment.ProcessId, currentProcessHandle, dbgpriv, TraceEventType.Information);
             }
         }
     }
