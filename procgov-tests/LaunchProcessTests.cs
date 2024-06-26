@@ -1,5 +1,4 @@
-﻿using NUnit.Framework;
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Threading;
 
 namespace ProcessGovernor.Tests;

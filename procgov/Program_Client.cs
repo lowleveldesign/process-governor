@@ -32,7 +32,6 @@ static partial class Program
         using var targetProcess = CreateSuspendedProcess(launch);
 
         using var job = Win32JobModule.CreateJob(Win32JobModule.GetNewJobName(), jobSettings.ClockTimeLimitInMilliseconds);
-        Debug.Assert(job != null);
 
         using (var _ = new ScopedAccountPrivileges(["SeDebugPrivilege"]))
         {

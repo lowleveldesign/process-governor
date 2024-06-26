@@ -22,7 +22,7 @@ sealed class Win32Job(SafeHandle jobHandle, string jobName, SafeHandle? firstPro
 
     public nint NativeHandle => jobHandle.DangerousGetHandle();
 
-    public string JobName => jobName;
+    public string Name => jobName;
 
     public void Dispose()
     {

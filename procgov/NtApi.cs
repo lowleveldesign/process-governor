@@ -14,7 +14,7 @@ using System.Diagnostics;
 
 namespace ProcessGovernor;
 
-public static class NtApi
+static class NtApi
 {
     private static unsafe bool IsRemoteProcessWow64(SafeHandle processHandle)
     {
