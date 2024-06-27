@@ -206,11 +206,12 @@ static partial class Program
                             var taskIndex = Task.WaitAny(sendTasks, ct);
                             if (sendTasks[taskIndex].IsFaulted)
                             {
-                                Logger.TraceEvent(TraceEventType.Warning, 0, 
+                                Logger.TraceEvent(TraceEventType.Warning, 0,
                                     $"[process monitor] failed to send data to the pipe: {sendTasks[taskIndex].Exception}");
 
                                 var stream = jobNotificationStreams[taskIndex];
                                 notifier.RemoveNotificationStream(job.NativeHandle, stream);
+                                stream.Disconnect();
                                 stream.Dispose();
                             }
                             completedTasksCount++;
@@ -219,6 +220,21 @@ static partial class Program
                     }
 
                     // FIXME: if job is not monitored anymore, remove it from the list
+                    if (jobEvent is NoProcessesInJobEvent)
+                    {
+                        foreach (var s in notifier.GetNotificationStreams(job.NativeHandle))
+                        {
+                            s.Disconnect();
+                            s.Dispose();
+                        }
+                        // FIXME: did we received all the process exit events?
+                        monitoredJobs.RemoveJob(job);
+
+                        if (monitoredJobs.Length == 0)
+                        {
+                            cts.Cancel();
+                        }
+                    }
                 }
             }
         }
@@ -257,9 +273,9 @@ static partial class Program
     private sealed class Notifier : IDisposable
     {
         readonly object lck = new();
-        readonly Dictionary<nint, Stream[]> notificationStreams = [];
+        readonly Dictionary<nint, NamedPipeServerStream[]> notificationStreams = [];
 
-        public void AddNotificationStream(nint jobHandle, Stream stream)
+        public void AddNotificationStream(nint jobHandle, NamedPipeServerStream stream)
         {
             lock (lck)
             {
@@ -274,7 +290,7 @@ static partial class Program
             }
         }
 
-        public void RemoveNotificationStream(nint jobHandle, Stream stream)
+        public void RemoveNotificationStream(nint jobHandle, NamedPipeServerStream stream)
         {
             lock (lck)
             {
@@ -284,7 +300,7 @@ static partial class Program
                     if (newStreams.Length > 0)
                     {
 
-                       notificationStreams[jobHandle] = newStreams;
+                        notificationStreams[jobHandle] = newStreams;
                     }
                     else
                     {
@@ -294,7 +310,7 @@ static partial class Program
             }
         }
 
-        public Stream[] GetNotificationStreams(nint jobHandle)
+        public NamedPipeServerStream[] GetNotificationStreams(nint jobHandle)
         {
             lock (lck)
             {
@@ -343,6 +359,8 @@ static partial class Program
                 return monitoredJobs.TryGetValue(jobHandle, out job);
             }
         }
+
+        public int Length { get { lock (lck) { return monitoredJobs.Count; } } }
 
         public void Dispose()
         {

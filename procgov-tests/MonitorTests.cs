@@ -3,10 +3,14 @@ using Microsoft.Win32.SafeHandles;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
+using System.IO;
 using System.IO.Pipes;
+using System.Net.Http;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.Win32;
+using Windows.Win32.Foundation;
 using Windows.Win32.System.Threading;
 
 namespace ProcessGovernor.Tests;
@@ -18,12 +22,32 @@ public sealed class MonitorTests
     [Test]
     public async Task StartExitProcessEvents()
     {
-        const string ProcessArgs = "cmd.exe /c \"exit 1\"\0";
+        var notifications = await RunProcessUnderMonitor("cmd.exe /c \"exit 1\"", new JobSettings(
+            MaxProcessMemory: 256 * 1024 * 1024, PropagateOnChildProcesses: false));
 
+        Assert.That(notifications, Has.Count.EqualTo(3));
+
+        Assert.That(notifications[0], Is.InstanceOf<NewProcessEvent>());
+        Assert.That(notifications[1], Is.InstanceOf<ExitProcessEvent>());
+        Assert.That(notifications[2], Is.InstanceOf<NoProcessesInJobEvent>());
+    }
+
+    [Test]
+    public async Task ActiveProcessNumberExceeded()
+    {
+        var testLimitPath = Path.Combine(AppContext.BaseDirectory, "testlimit.exe");
+        if (!File.Exists(testLimitPath))
+        {
+            using var client = new HttpClient();
+            using var fileStream = File.Create(testLimitPath);
+            await (await client.GetStreamAsync("https://live.sysinternals.com/Testlimit.exe")).CopyToAsync(fileStream);
+        }
+    }
+
+    async static Task<List<IMonitorResponse>> RunProcessUnderMonitor(string processArgs, JobSettings jobSettings)
+    {
         // using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         using var cts = new CancellationTokenSource();
-
-        var jobSettings = new JobSettings(MaxProcessMemory: 256 * 1024 * 1024, PropagateOnChildProcesses: false);
 
         var monitorTask = Task.Run(() => Program.Execute(new RunAsMonitor(), cts.Token));
 
@@ -33,7 +57,7 @@ public sealed class MonitorTests
             try { await pipe.ConnectAsync(cts.Token); } catch { }
         }
 
-        var (pid, processHandle, threadHandle) = CreateSuspendedProcess();
+        var (pid, processHandle, threadHandle) = CreateSuspendedProcess(processArgs);
 
         var buffer = new ArrayBufferWriter<byte>(1024);
 
@@ -66,10 +90,9 @@ public sealed class MonitorTests
 
         // monitor should exit as there are no more jobs to monitor
         await monitorTask;
-        // notification listener should finish as the pipe gets diconnected
-        await notificationListenerTask;
 
-        // FIXME: test the content of the notifications
+        // notification listener should finish as the pipe gets diconnected
+        return await notificationListenerTask;
 
         async Task<List<IMonitorResponse>> NotificationListener(CancellationToken ct)
         {
@@ -94,21 +117,27 @@ public sealed class MonitorTests
             return notifications;
         }
 
-        static (uint pid, SafeFileHandle processHandle, SafeFileHandle threadHandle) CreateSuspendedProcess()
+        static (uint pid, SafeFileHandle processHandle, SafeFileHandle threadHandle) CreateSuspendedProcess(string processArgs)
         {
-            unsafe
+            var processCreationFlags = PROCESS_CREATION_FLAGS.CREATE_UNICODE_ENVIRONMENT | PROCESS_CREATION_FLAGS.CREATE_SUSPENDED;
+
+            var processArgsPtr = Marshal.StringToHGlobalUni(processArgs);
+            try
             {
                 var pi = new PROCESS_INFORMATION();
-                var si = new STARTUPINFOW();
-                var processCreationFlags = PROCESS_CREATION_FLAGS.CREATE_UNICODE_ENVIRONMENT | PROCESS_CREATION_FLAGS.CREATE_SUSPENDED;
+                var si = new STARTUPINFOW() { cb = (uint)Marshal.SizeOf<STARTUPINFOW>() };
 
-                Span<char> processArgsSpan = stackalloc char[ProcessArgs.Length];
-                ProcessArgs.CopyTo(processArgsSpan);
-
-                NtApi.CheckWin32Result(PInvoke.CreateProcess(null, ref processArgsSpan, null, null, false,
-                    processCreationFlags, null, null, si, out pi));
+                unsafe
+                {
+                    NtApi.CheckWin32Result(PInvoke.CreateProcess(null, (char*)processArgsPtr, null, null,
+                        false, processCreationFlags, null, null, &si, &pi));
+                }
 
                 return (pi.dwProcessId, new(pi.hProcess, true), new(pi.hThread, true));
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(processArgsPtr);
             }
         }
     }
