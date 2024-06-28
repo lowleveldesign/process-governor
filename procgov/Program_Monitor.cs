@@ -16,7 +16,7 @@ static partial class Program
     // main pipe used to receive commands from the client and respond to them
     public const string PipeName = "procgov";
 
-    public static async Task<int> Execute(RunAsMonitor monitor, CancellationToken ct)
+    public static async Task<int> Execute(RunAsMonitor _, CancellationToken ct)
     {
         try
         {
@@ -48,26 +48,35 @@ static partial class Program
         while (!cts.IsCancellationRequested)
         {
             // FIXME: set pipe security = current user + admins
-
             var pipe = new NamedPipeServerStream(PipeName, PipeDirection.InOut,
                 NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte,
                 PipeOptions.WriteThrough | PipeOptions.Asynchronous);
 
+            bool pipeForwarded = false;
             try
             {
                 await pipe.WaitForConnectionAsync(cts.Token);
 
                 _ = StartClientThread(pipe);
+
+                pipeForwarded = true;
             }
             catch (IOException ex)
             {
                 // IOException that is raised if the pipe is broken or disconnected.
-                Debug.WriteLine("[procgov monitor] broken named pipe: " + ex);
+                Logger.TraceEvent(TraceEventType.Verbose, 0, "[procgov monitor] broken named pipe: " + ex);
             }
             catch (Exception ex) when (ex is OperationCanceledException || (
                     ex is AggregateException && ex.InnerException is TaskCanceledException))
             {
-                Debug.WriteLine("[procgov monitor] cancellation: " + ex);
+                Logger.TraceEvent(TraceEventType.Verbose, 0, "[procgov monitor] cancellation: " + ex);
+            }
+            finally
+            {
+                if (!pipeForwarded)
+                {
+                    pipe.Dispose();
+                }
             }
         }
 
@@ -126,18 +135,18 @@ static partial class Program
             }
             catch (IOException ex)
             {
-                Logger.TraceEvent(TraceEventType.Warning, 0,
+                Logger.TraceEvent(TraceEventType.Verbose, 0,
                     $"[procgov monitor][{clientPid}] broken named pipe: {ex}");
             }
             catch (Exception ex) when (ex is OperationCanceledException || (
                     ex is AggregateException && ex.InnerException is TaskCanceledException))
             {
-                Logger.TraceEvent(TraceEventType.Warning, 0,
+                Logger.TraceEvent(TraceEventType.Verbose, 0,
                     $"[procgov monitor][{clientPid}] cancellation: {ex}");
             }
             catch (Exception ex)
             {
-                Logger.TraceEvent(TraceEventType.Warning, 0,
+                Logger.TraceEvent(TraceEventType.Verbose, 0,
                     $"[procgov monitor][{clientPid}] error: {ex}");
             }
             finally
@@ -228,9 +237,7 @@ static partial class Program
                             s.Dispose();
                         }
                         // FIXME: did we received all the process exit events?
-                        monitoredJobs.RemoveJob(job);
-
-                        if (monitoredJobs.Length == 0)
+                        if (monitoredJobs.RemoveJob(job) == 0)
                         {
                             cts.Cancel();
                         }
@@ -336,19 +343,21 @@ static partial class Program
         readonly object lck = new();
         readonly Dictionary<nint, Win32Job> monitoredJobs = [];
 
-        public void AddJob(Win32Job job)
+        public int AddJob(Win32Job job)
         {
             lock (lck)
             {
                 monitoredJobs.Add(job.NativeHandle, job);
+                return monitoredJobs.Count;
             }
         }
 
-        public void RemoveJob(Win32Job job)
+        public int RemoveJob(Win32Job job)
         {
             lock (lck)
             {
                 monitoredJobs.Remove(job.NativeHandle);
+                return monitoredJobs.Count;
             }
         }
 
@@ -359,9 +368,6 @@ static partial class Program
                 return monitoredJobs.TryGetValue(jobHandle, out job);
             }
         }
-
-        public int Length { get { lock (lck) { return monitoredJobs.Count; } } }
-
         public void Dispose()
         {
             lock (lck)

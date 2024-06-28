@@ -163,14 +163,19 @@ static class ProcessModule
     }
     */
 
-    public static ulong GetSystemOrProcessorGroupAffinity(SafeHandle processHandle)
+    public static ulong GetSystemOrProcessorGroupAffinity()
     {
-        CheckWin32Result(PInvoke.GetProcessAffinityMask(processHandle, out _, out var sysaff));
-        if (sysaff == 0)
+        nuint processAffinityMask = 0, systemAffinityMask = 0;
+        unsafe
         {
-            logger.TraceEvent(TraceEventType.Warning, 0, "The process belongs to more than 1 processor group. " +
-                "Procgov will not able to set the process affinity.");
+            CheckWin32Result(PInvoke.GetProcessAffinityMask(
+                PInvoke.GetCurrentProcess(), &processAffinityMask, &systemAffinityMask));
+            if (systemAffinityMask == 0 && processAffinityMask == 0)
+            {
+                logger.TraceEvent(TraceEventType.Warning, 0, "The process belongs to more than 1 processor group. " +
+                    "Procgov will not able to set the process affinity.");
+            }
         }
-        return sysaff;
+        return systemAffinityMask;
     }
 }

@@ -53,9 +53,9 @@ static partial class Program
 
             // FIXME: subscribe and wait for notifications asynchronously
 
-            Win32JobModule.SetLimits(job, jobSettings, ProcessModule.GetSystemOrProcessorGroupAffinity(targetProcess.Handle));
+            Win32JobModule.SetLimits(job, jobSettings, ProcessModule.GetSystemOrProcessorGroupAffinity());
 
-            Win32JobModule.AssignProcess(job, targetProcess.Handle, jobSettings.PropagateOnChildProcesses);
+            Win32JobModule.AssignProcess(job, targetProcess.Handle);
         }
 
         foreach (var accountPrivilege in AccountPrivilegeModule.EnablePrivileges(targetProcess.Handle, launch.Privileges).Where(

@@ -66,12 +66,8 @@ static class Win32JobModule
         return new Win32Job(jobHandle, jobName);
     }
 
-    public static void AssignProcess(Win32Job job, SafeHandle processHandle, bool propagateOnChildProcesses)
+    public static void AssignProcess(Win32Job job, SafeHandle processHandle)
     {
-        using var currentProcessHandle = PInvoke.GetCurrentProcess_SafeHandle();
-        CheckWin32Result(PInvoke.DuplicateHandle(currentProcessHandle, job.Handle, processHandle,
-            out _, (uint)FILE_ACCESS_RIGHTS.STANDARD_RIGHTS_READ, propagateOnChildProcesses, 0));
-
         CheckWin32Result(PInvoke.AssignProcessToJobObject(job.Handle, processHandle));
     }
 
@@ -128,20 +124,20 @@ static class Win32JobModule
         if (session.MaxProcessMemory > 0)
         {
             flags |= JOB_OBJECT_LIMIT.JOB_OBJECT_LIMIT_PROCESS_MEMORY;
-            limitInfo.ProcessMemoryLimit = (UIntPtr)session.MaxProcessMemory;
+            limitInfo.ProcessMemoryLimit = checked((nuint)session.MaxProcessMemory);
         }
 
         if (session.MaxJobMemory > 0)
         {
             flags |= JOB_OBJECT_LIMIT.JOB_OBJECT_LIMIT_JOB_MEMORY;
-            limitInfo.JobMemoryLimit = (UIntPtr)session.MaxJobMemory;
+            limitInfo.JobMemoryLimit = checked((nuint)session.MaxJobMemory);
         }
 
         if (session.MaxWorkingSetSize > 0)
         {
             flags |= JOB_OBJECT_LIMIT.JOB_OBJECT_LIMIT_WORKINGSET;
-            limitInfo.BasicLimitInformation.MaximumWorkingSetSize = (UIntPtr)session.MaxWorkingSetSize;
-            limitInfo.BasicLimitInformation.MinimumWorkingSetSize = (UIntPtr)session.MinWorkingSetSize;
+            limitInfo.BasicLimitInformation.MaximumWorkingSetSize = checked((nuint)session.MaxWorkingSetSize);
+            limitInfo.BasicLimitInformation.MinimumWorkingSetSize = checked((nuint)session.MinWorkingSetSize);
         }
 
         if (session.ProcessUserTimeLimitInMilliseconds > 0)
@@ -154,6 +150,12 @@ static class Win32JobModule
         {
             flags |= JOB_OBJECT_LIMIT.JOB_OBJECT_LIMIT_JOB_TIME;
             limitInfo.BasicLimitInformation.PerJobUserTimeLimit = 10_000 * session.JobUserTimeLimitInMilliseconds; // in 100ns
+        }
+
+        if (session.ActiveProcessLimit > 0)
+        {
+            flags |= JOB_OBJECT_LIMIT.JOB_OBJECT_LIMIT_ACTIVE_PROCESS;
+            limitInfo.BasicLimitInformation.ActiveProcessLimit = session.ActiveProcessLimit;
         }
 
         if (flags != 0)
