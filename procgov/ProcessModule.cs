@@ -163,19 +163,4 @@ static class ProcessModule
     }
     */
 
-    public static ulong GetSystemOrProcessorGroupAffinity()
-    {
-        nuint processAffinityMask = 0, systemAffinityMask = 0;
-        unsafe
-        {
-            CheckWin32Result(PInvoke.GetProcessAffinityMask(
-                PInvoke.GetCurrentProcess(), &processAffinityMask, &systemAffinityMask));
-            if (systemAffinityMask == 0 && processAffinityMask == 0)
-            {
-                logger.TraceEvent(TraceEventType.Warning, 0, "The process belongs to more than 1 processor group. " +
-                    "Procgov will not able to set the process affinity.");
-            }
-        }
-        return systemAffinityMask;
-    }
 }

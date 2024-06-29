@@ -86,7 +86,7 @@ static class Win32JobModule
         return 0;
     }
 
-    public static void SetLimits(Win32Job job, JobSettings session, ulong systemOrProcessorGroupAffinityMask)
+    public static void SetLimits(Win32Job job, JobSettings session)
     {
         if (session.NumaNode != 0xffff)
         {
@@ -97,10 +97,29 @@ static class Win32JobModule
             }
         }
 
+        ulong systemOrProcessorGroupAffinityMask = GetSystemOrProcessorGroupAffinity();
+
         SetBasicLimits(job, session);
         SetMaxCpuRate(job, session, systemOrProcessorGroupAffinityMask);
         SetNumaAffinity(job, session, systemOrProcessorGroupAffinityMask);
         SetMaxBandwith(job, session);
+
+
+        static ulong GetSystemOrProcessorGroupAffinity()
+        {
+            nuint processAffinityMask = 0, systemAffinityMask = 0;
+            unsafe
+            {
+                CheckWin32Result(PInvoke.GetProcessAffinityMask(
+                    PInvoke.GetCurrentProcess(), &processAffinityMask, &systemAffinityMask));
+                if (systemAffinityMask == 0 && processAffinityMask == 0)
+                {
+                    logger.TraceEvent(TraceEventType.Warning, 0, "There is more than 1 processor group in the system. " +
+                        "Procgov will not able to set the process affinity.");
+                }
+            }
+            return systemAffinityMask;
+        }
     }
 
     // Process affinity is updated in the SetNumaAffinity method - updating through basic limits

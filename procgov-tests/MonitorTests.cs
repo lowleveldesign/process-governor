@@ -16,7 +16,6 @@ namespace ProcessGovernor.Tests;
 
 public static class MonitorTests
 {
-    // FIXME: test start without processing events
     static MonitorTests()
     {
         ProcessGovernorTestContext.Initialize();
@@ -42,7 +41,7 @@ public static class MonitorTests
         var jobSettings = new JobSettings(PropagateOnChildProcesses: false);
         using var job = Win32JobModule.CreateJob(Win32JobModule.GetNewJobName(), jobSettings.ClockTimeLimitInMilliseconds);
 
-        Win32JobModule.SetLimits(job, jobSettings, ProcessModule.GetSystemOrProcessorGroupAffinity());
+        Win32JobModule.SetLimits(job, jobSettings);
 
         int notificationNumber = 0;
         void NotificationCheck(IMonitorResponse resp)
@@ -69,11 +68,28 @@ public static class MonitorTests
         }
 
         await RunAndMonitorProcessUnderJob(job, "cmd.exe /c \"exit 1\"", NotificationCheck, cts.Token);
-        
+
         // job is not signaled
-        Assert.That(PInvoke.WaitForSingleObject(job.Handle, 0) == WAIT_EVENT.WAIT_TIMEOUT);
+        Assert.That(PInvoke.WaitForSingleObject(job.Handle, 0), Is.EqualTo(WAIT_EVENT.WAIT_TIMEOUT));
 
         Assert.That(notificationNumber, Is.EqualTo(3));
+    }
+
+
+    [Test]
+    public static async Task StartExitProcessWithoutMonitoring()
+    {
+        using var cts = new CancellationTokenSource(10000);
+
+        var jobSettings = new JobSettings(PropagateOnChildProcesses: false);
+        using var job = Win32JobModule.CreateJob(Win32JobModule.GetNewJobName(), jobSettings.ClockTimeLimitInMilliseconds);
+
+        Win32JobModule.SetLimits(job, jobSettings);
+
+        await RunAndMonitorProcessUnderJob(job, "cmd.exe /c \"exit 1\"", null, cts.Token);
+
+        // job is not signaled
+        Assert.That(PInvoke.WaitForSingleObject(job.Handle, 0), Is.EqualTo(WAIT_EVENT.WAIT_TIMEOUT));
     }
 
     [Test]
@@ -84,7 +100,7 @@ public static class MonitorTests
         var jobSettings = new JobSettings(ClockTimeLimitInMilliseconds: 2000, PropagateOnChildProcesses: false);
         using var job = Win32JobModule.CreateJob(Win32JobModule.GetNewJobName(), jobSettings.ClockTimeLimitInMilliseconds);
 
-        Win32JobModule.SetLimits(job, jobSettings, ProcessModule.GetSystemOrProcessorGroupAffinity());
+        Win32JobModule.SetLimits(job, jobSettings);
 
         int notificationNumber = 0;
         void NotificationCheck(IMonitorResponse resp)
@@ -96,8 +112,7 @@ public static class MonitorTests
                     Assert.That(ev.JobName, Is.EqualTo(job.Name));
                     break;
                 case NoProcessesInJobEvent ev:
-                    // we are not getting the usual process exit event when job
-                    // it terminated
+                    // we are not getting the usual process exit event when job is terminated
                     Assert.That(notificationNumber, Is.EqualTo(1));
                     Assert.That(ev.JobName, Is.EqualTo(job.Name));
                     break;
@@ -118,7 +133,7 @@ public static class MonitorTests
         await task;
 
         // job should albo be signaled
-        Assert.That(PInvoke.WaitForSingleObject(job.Handle, 0) == WAIT_EVENT.WAIT_OBJECT_0);
+        Assert.That(PInvoke.WaitForSingleObject(job.Handle, 0), Is.EqualTo(WAIT_EVENT.WAIT_OBJECT_0));
 
         Assert.That(notificationNumber, Is.EqualTo(2));
     }
@@ -126,30 +141,32 @@ public static class MonitorTests
     [Test]
     public static async Task ActiveProcessNumberExceeded()
     {
-        using var cts = new CancellationTokenSource(10000);
+        using var cts = new CancellationTokenSource(15000);
 
         var testLimitPath = await DownloadSysinternalsTestLimit(cts.Token);
 
         var jobSettings = new JobSettings(ActiveProcessLimit: 3, PropagateOnChildProcesses: true);
         using var job = Win32JobModule.CreateJob(Win32JobModule.GetNewJobName(), jobSettings.ClockTimeLimitInMilliseconds);
 
-        Win32JobModule.SetLimits(job, jobSettings, ProcessModule.GetSystemOrProcessorGroupAffinity());
+        Win32JobModule.SetLimits(job, jobSettings);
 
         int notificationNumber = 0;
         void NotificationCheck(IMonitorResponse resp)
         {
             switch (resp)
             {
+                case NewProcessEvent ev:
+                    Assert.That(notificationNumber, Is.GreaterThanOrEqualTo(0).And.LessThan(jobSettings.ActiveProcessLimit));
+                    Assert.That(ev.JobName, Is.EqualTo(job.Name));
+                    break;
                 case JobLimitExceededEvent jobLimit:
                     Assert.That(notificationNumber, Is.EqualTo(jobSettings.ActiveProcessLimit));
                     Assert.That(jobLimit.ExceededLimit, Is.EqualTo(LimitType.ActiveProcessNumber));
                     Assert.That(jobLimit.JobName, Is.EqualTo(job.Name));
 
+                    // The job does not allow more processes to be created and is still active. Therefore,
+                    // we need to stop the monitor manually.
                     cts.Cancel();
-                    break;
-                case NewProcessEvent ev:
-                    Assert.That(notificationNumber, Is.GreaterThanOrEqualTo(0).And.LessThan(jobSettings.ActiveProcessLimit));
-                    Assert.That(ev.JobName, Is.EqualTo(job.Name));
                     break;
                 default:
                     Assert.Fail($"Unexpected event: {resp}");
@@ -167,22 +184,83 @@ public static class MonitorTests
         {
             Win32JobModule.TerminateJob(job, 0);
         }
-        
+
         // job is not signaled
-        Assert.That(PInvoke.WaitForSingleObject(job.Handle, 0) == WAIT_EVENT.WAIT_TIMEOUT);
+        Assert.That(PInvoke.WaitForSingleObject(job.Handle, 0), Is.EqualTo(WAIT_EVENT.WAIT_TIMEOUT));
 
         Assert.That(notificationNumber, Is.EqualTo(4));
     }
 
-    async static Task RunAndMonitorProcessUnderJob(Win32Job job, string processArgs,
-        Action<IMonitorResponse> processNotification, CancellationToken ct)
+    [Test]
+    public static async Task ProcessMemoryLimitExceeded()
     {
-        var monitorTask = Task.Run(() => Program.Execute(new RunAsMonitor(), ct));
+        using var cts = new CancellationTokenSource(10000);
 
-        using var pipe = new NamedPipeClientStream(".", Program.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
-        while (!pipe.IsConnected && !ct.IsCancellationRequested)
+        var testLimitPath = await DownloadSysinternalsTestLimit(cts.Token);
+
+        // memory limit per process is 2MB
+        var jobSettings = new JobSettings(MaxProcessMemory: 2 * 1024 * 1024, PropagateOnChildProcesses: true);
+        using var job = Win32JobModule.CreateJob(Win32JobModule.GetNewJobName(), jobSettings.ClockTimeLimitInMilliseconds);
+
+        Win32JobModule.SetLimits(job, jobSettings);
+
+        int notificationNumber = 0;
+        void NotificationCheck(IMonitorResponse resp)
         {
-            try { await pipe.ConnectAsync(ct); } catch { }
+            switch (resp)
+            {
+                case NewProcessEvent ev:
+                    Assert.That(notificationNumber, Is.EqualTo(0));
+                    Assert.That(ev.JobName, Is.EqualTo(job.Name));
+                    break;
+                case ProcessLimitExceededEvent jobLimit:
+                    Assert.That(notificationNumber, Is.EqualTo(1));
+                    Assert.That(jobLimit.ExceededLimit, Is.EqualTo(LimitType.Memory));
+                    Assert.That(jobLimit.JobName, Is.EqualTo(job.Name));
+
+                    // The job does not allow more processes to be created and is still active. Therefore,
+                    // we need to stop the monitor manually.
+                    cts.Cancel();
+                    break;
+                default:
+                    Assert.Fail($"Unexpected event: {resp}");
+                    break;
+            }
+            notificationNumber++;
+        }
+
+        try
+        {
+            await RunAndMonitorProcessUnderJob(job, $"\"{testLimitPath}\" -m 1", NotificationCheck, cts.Token);
+        }
+        catch (TaskCanceledException) { }
+        finally
+        {
+            Win32JobModule.TerminateJob(job, 0);
+        }
+
+        // job is not signaled
+        Assert.That(PInvoke.WaitForSingleObject(job.Handle, 0), Is.EqualTo(WAIT_EVENT.WAIT_TIMEOUT));
+
+        Assert.That(notificationNumber, Is.EqualTo(2));
+    }
+
+    async static Task RunAndMonitorProcessUnderJob(Win32Job job, string processArgs,
+        Action<IMonitorResponse>? processNotification, CancellationToken ct)
+    {
+        var monitorTask = Task.CompletedTask;
+        using var pipe = new NamedPipeClientStream(".", Program.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+
+        // is monitor already running?
+        try { await pipe.ConnectAsync(10, ct); }
+        catch
+        {
+            monitorTask = Task.Run(() => Program.Execute(new RunAsMonitor(), ct));
+
+            while (!pipe.IsConnected && !ct.IsCancellationRequested)
+            {
+                try { await pipe.ConnectAsync(ct); } catch { }
+            }
         }
 
         var (pid, processHandle, threadHandle) = CreateSuspendedProcess(processArgs);
@@ -202,11 +280,12 @@ public static class MonitorTests
         Assert.That(readBytes, Is.EqualTo(deseralizedBytes));
         buffer.ResetWrittenCount();
 
-        MessagePackSerializer.Serialize<IMonitorRequest>(buffer, new MonitorJob(job.Name, true), cancellationToken: ct);
+        MessagePackSerializer.Serialize<IMonitorRequest>(buffer, new MonitorJob(job.Name, processNotification is not null),
+            cancellationToken: ct);
         await pipe.WriteAsync(buffer.WrittenMemory, ct);
         buffer.ResetWrittenCount();
 
-        var notificationListenerTask = NotificationListener();
+        var notificationListenerTask = processNotification is not null ? NotificationListener() : Task.CompletedTask;
 
         Win32JobModule.AssignProcess(job, processHandle);
 
