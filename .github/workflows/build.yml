@@ -18,9 +18,9 @@ jobs:
       with:
         dotnet-version: '9.0.x' # SDK Version to use.
 
-# Lots of tests now require a GUI environment - I need to categorize them and allow only a small set here
-#    - run: dotnet test -c release
-#      working-directory: ./procgov-tests
+    # other tests require a desktop environment as they start cmd.exe and winver.exe processes
+    - run: dotnet test -c release --filter "FullyQualifiedName~ProcessGovernor.Tests.Code.ProgramTests.ParseArgs"
+      working-directory: ./procgov-tests
 
     - run: dotnet publish -c release -r win-x64
       working-directory: ./procgov

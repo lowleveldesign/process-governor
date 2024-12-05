@@ -80,7 +80,7 @@ public static partial class ProgramTests
     {
         using var cts = new CancellationTokenSource(10000);
 
-        var (cmd, cmdMainThreadHandle) = ProcessModule.CreateSuspendedProcess(["cmd.exe"], false, []);
+        var (cmd, cmdMainThreadHandle) = ProcessModule.CreateSuspendedProcess(["cmd.exe", "/c", "pause 4"], false, []);
         try
         {
             PInvoke.ResumeThread(cmdMainThreadHandle);

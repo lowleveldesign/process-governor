@@ -264,10 +264,15 @@ public static partial class ProgramTests
             // sure that it will treat our newly started process as new
             await Task.Delay(Program.ServiceProcessObserverIntervalInMilliseconds * 2, cts.Token);
 
-
-            const int ChildProcessTimeoutSeconds = 4;
+            const int ChildProcessTimeoutSeconds = Program.ServiceProcessObserverIntervalInMilliseconds * 3 / 1000;
             // the monitor should start with the first monitored process
-            using var monitoredProcess = Process.Start("cmd.exe", $"/c timeout /T {ChildProcessTimeoutSeconds} && winver.exe");
+            using var monitoredProcess = Process.Start(new ProcessStartInfo()
+            {
+                FileName = "cmd.exe",
+                Arguments = $"/c timeout /T {ChildProcessTimeoutSeconds} && winver.exe",
+                UseShellExecute = true
+            });
+            Debug.Assert(monitoredProcess != null);
             Program.Logger.TraceInformation($"[test] {nameof(monitoredProcess)}.Id = {monitoredProcess.Id}");
 
             // give it time to discover a new process
@@ -288,7 +293,7 @@ public static partial class ProgramTests
 
                 await Task.Delay((ChildProcessTimeoutSeconds + 1) * 1000, cts.Token);
 
-                using var childProcess = Process.GetProcessesByName("winver").First(p => p.StartTime > monitoredProcess.StartTime);
+                using var childProcess = Process.GetProcessesByName("winver").First(p => p.StartTime >= monitoredProcess.StartTime);
                 Program.Logger.TraceInformation($"[test] {nameof(childProcess)}.Id = {childProcess.Id}");
 
                 try
