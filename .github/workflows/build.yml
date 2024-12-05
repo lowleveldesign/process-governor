@@ -28,8 +28,8 @@ jobs:
     - name: Copy artifacts
       run: |
         New-Item -Type Directory -Path artifacts
-        Copy-Item -Path "procgov/bin/release/net8.0-windows/win-x64/publish/procgov.exe" -Destination "artifacts/procgov.exe"
-        Copy-Item -Path "procgov/bin/release/net8.0-windows/win-x64/publish/procgov.pdb" -Destination "artifacts/procgov.pdb"
+        Copy-Item -Path "procgov/bin/release/net9.0-windows/win-x64/publish/procgov.exe" -Destination "artifacts/procgov.exe"
+        Copy-Item -Path "procgov/bin/release/net9.0-windows/win-x64/publish/procgov.pdb" -Destination "artifacts/procgov.pdb"
 
     - uses: actions/upload-artifact@v4
       with:
