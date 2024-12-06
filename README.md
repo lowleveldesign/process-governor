@@ -10,9 +10,11 @@ This application allows you to set constraints on Windows processes. It uses [a 
 <!-- MarkdownTOC -->
 
 - [Installation](#installation)
-- [Setting procgov limits on a process](#setting-procgov-limits-on-a-process)
-- [Setting procgov limits on multiple processes](#setting-procgov-limits-on-multiple-processes)
-- [Update already applied limits](#update-already-applied-limits)
+- [Understanding procgov run modes](#understanding-procgov-run-modes)
+- [Applying limits on processes](#applying-limits-on-processes)
+    - [Setting limits on a single process](#setting-limits-on-a-single-process)
+    - [Setting limits on multiple processes](#setting-limits-on-multiple-processes)
+    - [Updating already applied limits](#updating-already-applied-limits)
 - [Available process constraints](#available-process-constraints)
     - [Limit memory of a process](#limit-memory-of-a-process)
     - [Limit CPU usage of a process \(CPU affinity\)](#limit-cpu-usage-of-a-process-cpu-affinity)
@@ -38,9 +40,15 @@ choco install procgov
 winget install procgov
 ```
 
-## Setting procgov limits on a process
+## Understanding procgov run modes
 
-You may set limits on a newly created process or on an already running one. To **attach to a process** use the **-p|--pid** switch, eg.
+FIXME: cmd app, service, monitor
+
+## Applying limits on processes
+
+### Setting limits on a single process
+
+You may set limits on a newly created process or on an already running one. To **constraint a running process** use the **-p|--pid** switch, eg.
 
 ```shell
 procgov.exe --maxmem 40M --pid 1234
@@ -54,9 +62,9 @@ procgov.exe -m 100M -- test.exe -arg1 -arg2=val2 arg3
 
 Finally, you may **run procgov always when a given process starts**. When you use the **--install** switch Process Governor will add a special key to the **Image File Execution Options** in the registry, so that it will always start before your chosen process. To install Process Governor for a test.exe process, use the following command: `procgov64 --install --maxmem 40M test.exe`. You may later remove this installation by using the **--uninstall** switch, eg. `procgov64 --uninstall test.exe`. Be careful with this option as it may break some applications, especially those that spawn child processes with the same executable as the parent, for example, chrome.exe or msedge.exe.
 
-## Setting procgov limits on multiple processes
+### Setting limits on multiple processes
 
-Starting from version 2.12 it is possible to assign multiple processes to the same job object. When you provide more than one process ID to the **-p** parameter, procgov will apply the same limits for all the processes, for example:
+You may assign multiple processes to the same job object. When you provide more than one process ID to the **-p** parameter, procgov will apply the same limits for all the processes, for example:
 
 ```shell
 procgov.exe --maxmem 100M --pid 1234,1235,1236
@@ -64,9 +72,9 @@ procgov.exe --maxmem 100M --pid 1234,1235,1236
 
 If any of the processes was already assigned to a procgov job object, others will be assigned to it as well.
 
-## Update already applied limits
+### Updating already applied limits
 
-Starting from version 2.8, it is possible to **update once set limits**. Simply run procgov providing new limits and the target process ID(s). Procgov will update only the specified limits. Let's have a look at an example to understand this behavior better:
+It is also possible to **update once set limits**. However, there is one requirement: the processes can't be assigned to different procgov jobs (so they must be either in the same job or unassigned). To update the limits, simply run procgov providing new limits and the target process ID(s). Procgov will update only the specified limits. Let's have a look at an example to understand this behavior better:
 
 ```shell
 We set a CPU limit on a process 1234

@@ -222,7 +222,6 @@ public static partial class ProgramTests
         switch (Program.ParseArgs(RealSystemInfo, ["--uninstall-all"]))
         {
             case RemoveAllProcessGovernance:
-                Assert.Pass();
                 break;
             default:
                 Assert.Fail();
@@ -262,7 +261,6 @@ public static partial class ProgramTests
         switch (Program.ParseArgs(TestSystemInfo2Numas4Groups, ["test.exe"]))
         {
             case RunAsCmdApp { JobSettings.CpuAffinity: null }:
-                Assert.Pass();
                 break;
             default:
                 Assert.Fail();

@@ -448,22 +448,19 @@ static partial class Program
                 }
 
                 List<GroupAffinity> jobCpuAffinity = [];
-                for (int nidx = 0; nidx < systemInfo.NumaNodes.Length && cpuCount > 0; nidx++)
+                for (int i = 0; i < systemInfo.ProcessorGroups.Length && cpuCount > 0; i++)
                 {
-                    for (int gidx = 0; gidx < systemInfo.NumaNodes[nidx].ProcessorGroups.Length && cpuCount > 0; gidx++)
+                    var group = systemInfo.ProcessorGroups[i];
+                    int coresNumber = BitOperations.PopCount(group.AffinityMask);
+                    if (cpuCount > coresNumber)
                     {
-                        var group = systemInfo.NumaNodes[nidx].ProcessorGroups[gidx];
-                        int coresNumber = BitOperations.PopCount(group.AffinityMask);
-                        if (cpuCount > coresNumber)
-                        {
-                            jobCpuAffinity.Add(new(group.Number, group.AffinityMask));
-                            cpuCount -= coresNumber;
-                        }
-                        else
-                        {
-                            jobCpuAffinity.Add(new(group.Number, group.AffinityMask >> (coresNumber - cpuCount)));
-                            cpuCount = 0;
-                        }
+                        jobCpuAffinity.Add(new(group.Number, group.AffinityMask));
+                        cpuCount -= coresNumber;
+                    }
+                    else
+                    {
+                        jobCpuAffinity.Add(new(group.Number, group.AffinityMask >> (coresNumber - cpuCount)));
+                        cpuCount = 0;
                     }
                 }
                 return [.. jobCpuAffinity];
