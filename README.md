@@ -11,6 +11,9 @@ This application allows you to set constraints on Windows processes. It uses [a 
 
 - [Installation](#installation)
 - [Understanding procgov run modes](#understanding-procgov-run-modes)
+    - [The command-line application mode \(default\)](#the-command-line-application-mode-default)
+    - [The monitor mode](#the-monitor-mode)
+    - [The service mode](#the-service-mode)
 - [Applying limits on processes](#applying-limits-on-processes)
     - [Setting limits on a single process](#setting-limits-on-a-single-process)
     - [Setting limits on multiple processes](#setting-limits-on-multiple-processes)
@@ -42,7 +45,21 @@ winget install procgov
 
 ## Understanding procgov run modes
 
-FIXME: cmd app, service, monitor
+### The command-line application mode (default)
+
+Not much to say here :) It's the default mode that is activated when you launch procgov from the command prompt to launch a new process or attach to a running one.
+
+### The monitor mode
+
+When using procgov you may observe that it sometimes launches a second instance of itself (unless you use the --nomonitor switch). This second instance is a job monitor and you may recognize it by the --monitor switch in the command line args. It will stay alive until the last process in the monitored jobs exits. There should be at maximum one instance of a job monitor per Windows session. Its role is to monitor jobs created with procgov. The monitor should exit right after the termination of the last process in the monitored jobs.
+
+### The service mode
+
+If you use the **--install** switch to persist application settings, procgov will save the settings in the registry and will create a Windows service named ProcessGovernor. By default it will use the SYSTEM account and the `%ProgramFiles%\ProcessGovernor` folder as the service base path. You may configure this settings by using the **--service-path**, **--service-username**, and **--service-password** command-line switches. If you run the install command for another application, procgov will add new data to the registry but will reuse the existing service. The service should pick up the updated configuration after short time.
+
+The ProcessGovernor service monitors starting processes and applies limits predefined during installation.
+
+To uninstall the service, use the **--uninstall** switch. The service will be removed when you remove the last saved configuration. If you want to remove all saved procgov data, along with the service, use the **--uninstall-all** switch.
 
 ## Applying limits on processes
 
@@ -59,8 +76,6 @@ To **start a new process** with the limits applied, just pass the process image 
 ```shell
 procgov.exe -m 100M -- test.exe -arg1 -arg2=val2 arg3
 ````
-
-Finally, you may **run procgov always when a given process starts**. When you use the **--install** switch Process Governor will add a special key to the **Image File Execution Options** in the registry, so that it will always start before your chosen process. To install Process Governor for a test.exe process, use the following command: `procgov64 --install --maxmem 40M test.exe`. You may later remove this installation by using the **--uninstall** switch, eg. `procgov64 --uninstall test.exe`. Be careful with this option as it may break some applications, especially those that spawn child processes with the same executable as the parent, for example, chrome.exe or msedge.exe.
 
 ### Setting limits on multiple processes
 
