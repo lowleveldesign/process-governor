@@ -45,6 +45,8 @@ jobs:
         files: procgov.zip
 
     - name: Publish to winget
+      env:
+        WINGET_GH_TOKEN: ${{ secrets.WINGET_GH_TOKEN }}
       run: ./winget-publish.ps1
 
     - name: Copy the binary to Chocolatey path

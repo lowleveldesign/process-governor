@@ -1,7 +1,7 @@
 $ErrorActionPreference="Stop"
 
 if (-not (Test-Path -Path "wingetcreate.exe")) {
-    Invoke-WebRequest -Uri "https://github.com/microsoft/winget-create/releases/latest/download/wingetcreate.exe" -OutFile "wingetcreate.exe"
+    Invoke-WebRequest -Uri "https://aka.ms/wingetcreate/latest" -OutFile "wingetcreate.exe"
 }
 
 $BuildNumber = $env:GITHUB_RUN_NUMBER % [int16]::MaxValue
