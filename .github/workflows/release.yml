@@ -62,11 +62,6 @@ jobs:
     - name: Build Chocolatey package
       run: choco pack
       working-directory: .choco
-     
-    - uses: actions/upload-artifact@v4
-      with:
-        name: procgov-pkg
-        path: .choco\procgov.*.nupkg
 
     - name: Release Chocolatey package
       run: choco push $(Resolve-Path "procgov.*.nupkg") -s https://push.chocolatey.org/ -k "$env:CHOCO_KEY"
