@@ -13,7 +13,7 @@ This application allows you to set constraints on Windows processes. It uses [a 
 - [Understanding procgov run modes](#understanding-procgov-run-modes)
     - [The command-line application mode \(default\)](#the-command-line-application-mode-default)
     - [The monitor mode](#the-monitor-mode)
-    - [The service mode](#the-service-mode)
+    - [The service mode \(beta\)](#the-service-mode-beta)
 - [Applying limits on processes](#applying-limits-on-processes)
     - [Setting limits on a single process](#setting-limits-on-a-single-process)
     - [Setting limits on multiple processes](#setting-limits-on-multiple-processes)
@@ -53,7 +53,9 @@ Not much to say here :) It's the default mode that is activated when you launch 
 
 When using procgov you may observe that it sometimes launches a second instance of itself (unless you use the --nomonitor switch). This second instance is a job monitor and you may recognize it by the --monitor switch in the command line args. It will stay alive until the last process in the monitored jobs exits. There should be at maximum one instance of a job monitor per Windows session. Its role is to monitor jobs created with procgov. The monitor should exit right after the termination of the last process in the monitored jobs.
 
-### The service mode
+### The service mode (beta)
+
+*This feature is in a beta phase. Please use it with caution and report any experienced errors.*
 
 If you use the **--install** switch to persist application settings, procgov will save the settings in the registry and will create a Windows service named ProcessGovernor. By default it will use the SYSTEM account and the `%ProgramFiles%\ProcessGovernor` folder as the service base path. You may configure this settings by using the **--service-path**, **--service-username**, and **--service-password** command-line switches. If you run the install command for another application, procgov will add new data to the registry but will reuse the existing service. The service should pick up the updated configuration after short time.
 
@@ -133,7 +135,7 @@ If you provide the CPU core number as **a hex value (with 0x prefix)**, this num
 
 The --cpu parameter may be defined **multiple times** and the final affinity mask will be a combination of the provided masks.
 
-Let's have a look at two example usages on a CPU intensive application.  In a first one we set the CPU core limit to two cores:
+Let's have a look at two example usages on a CPU intensive application. In a first one we set the CPU core limit to two cores:
 
 ```shell
 procgov.exe --cpu=2 TestLimit.exe
@@ -202,7 +204,7 @@ The **--process-utime** and **--job-utime** options allow you to set a limit on 
 
 ### Set the priority class
 
-The **--priority** parameter sets the process priority class of monitored processes. Possible values include: Idle, BelowNormal, Normal, AboveNormal, High, RealTime. The highest three priorities require **SeIncreaseBasePriorityPrivilege**, so make sure your account has it (more info in the [issue 69](https://github.com/lowleveldesign/process-governor/issues/69)).
+The **--priority** parameter sets the process priority class of monitored processes. Possible values include: `Idle`, `BelowNormal`, `Normal`, `AboveNormal`, `High`, `RealTime`. The highest three priorities require **SeIncreaseBasePriorityPrivilege**, so make sure your account has it (more info in the [issue 69](https://github.com/lowleveldesign/process-governor/issues/69)).
 
 ### Set additional environment variables for a process
 
