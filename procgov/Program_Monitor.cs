@@ -9,6 +9,8 @@ using System.Security.AccessControl;
 using System.Security.Principal;
 using Windows.Win32;
 using Windows.Win32.Foundation;
+using Windows.Win32.UI.WindowsAndMessaging;
+
 using static ProcessGovernor.NtApi;
 
 namespace ProcessGovernor;
@@ -22,6 +24,11 @@ static partial class Program
     {
         try
         {
+            if (monitor.NoGui)
+            {
+                PInvoke.ShowWindow(PInvoke.GetConsoleWindow(), SHOW_WINDOW_CMD.SW_HIDE);
+            }
+
             await StartMonitor(monitor.MaxMonitorIdleTime, ct);
             return 0;
         }

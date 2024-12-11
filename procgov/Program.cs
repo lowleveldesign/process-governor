@@ -55,12 +55,6 @@ static partial class Program
                 _ => throw new NotImplementedException(),
             };
         }
-        catch (Win32Exception ex)
-        {
-            Console.Error.WriteLine($"WIN32 ERROR: 0x{ex.ErrorCode:X}");
-            Console.Error.WriteLine($"{ex}");
-            return 0xff;
-        }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"ERROR: {ex}");
@@ -308,7 +302,7 @@ static partial class Program
 
             return (procargs, pids, runAsMonitor, runAsService, install, uninstall, uninstallAll) switch
             {
-                ([], [], true, false, false, false, false) => new RunAsMonitor(DefaultMaxMonitorIdleTime),
+                ([], [], true, false, false, false, false) => new RunAsMonitor(DefaultMaxMonitorIdleTime, launchConfig.HasFlag(LaunchConfig.NoGui)),
                 ([], [], false, true, false, false, false) => new RunAsService(),
                 ([var executable], [], false, false, true, false, false) => new SetupProcessGovernance(
                     jobSettings, environment, privileges, executable, serviceInstallPath, serviceUserName, serviceUserPassword),

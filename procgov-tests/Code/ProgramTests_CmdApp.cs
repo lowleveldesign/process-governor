@@ -87,7 +87,7 @@ public static partial class ProgramTests
             cmdMainThreadHandle.Dispose();
 
             // start the monitor so the run command won't hang
-            var monitorTask = Task.Run(() => Program.Execute(new RunAsMonitor(Program.DefaultMaxMonitorIdleTime), cts.Token));
+            var monitorTask = Task.Run(() => Program.Execute(new RunAsMonitor(Program.DefaultMaxMonitorIdleTime, true), cts.Token));
             using (var pipe = new NamedPipeClientStream(".", Program.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous))
             {
                 while (!pipe.IsConnected && !cts.IsCancellationRequested)

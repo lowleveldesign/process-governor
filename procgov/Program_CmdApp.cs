@@ -129,7 +129,7 @@ static partial class Program
                 }
 
                 // we always enable verbose logs for the monitor since it uses ETW or Debug output
-                string cmdline = $"{Environment.ProcessPath} --monitor --verbose\0";
+                string cmdline = $"{Environment.ProcessPath} --monitor --verbose --nogui";
 
                 var pi = new PROCESS_INFORMATION();
                 var si = new STARTUPINFOW();
@@ -137,7 +137,8 @@ static partial class Program
                 fixed (char* cmdlinePtr = cmdline)
                 {
                     CheckWin32Result(PInvoke.CreateProcess(null, new PWSTR(cmdlinePtr), null, null, false,
-                        PROCESS_CREATION_FLAGS.CREATE_NEW_PROCESS_GROUP, null, null, &si, &pi));
+                        PROCESS_CREATION_FLAGS.CREATE_NEW_PROCESS_GROUP | PROCESS_CREATION_FLAGS.CREATE_NEW_CONSOLE,
+                        null, null, &si, &pi));
                 }
 
                 PInvoke.CloseHandle(pi.hProcess);
@@ -203,7 +204,7 @@ static partial class Program
                 if (Array.FindIndex(assignedJobNames, jobName => jobName != "") is var monitoredProcessIndex && monitoredProcessIndex != -1)
                 {
                     jobName = assignedJobNames[monitoredProcessIndex];
-                    
+
                     // check if all assigned jobs are the same
                     if (Array.FindIndex(assignedJobNames, n => n != jobName && n != "") is var idx && idx != -1)
                     {

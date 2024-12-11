@@ -88,7 +88,7 @@ public static partial class ProgramTests
         using var cts = new CancellationTokenSource(30000);
 
         // start the monitor so the run command (started by service) won't hang
-        var monitorTask = Task.Run(() => Program.Execute(new RunAsMonitor(TimeSpan.FromSeconds(30)), cts.Token));
+        var monitorTask = Task.Run(() => Program.Execute(new RunAsMonitor(TimeSpan.FromSeconds(30), true), cts.Token));
         using (var pipe = new NamedPipeClientStream(".", Program.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous))
         {
             while (!pipe.IsConnected && !cts.IsCancellationRequested)
@@ -162,7 +162,7 @@ public static partial class ProgramTests
         using var cts = new CancellationTokenSource(30000);
 
         // start the monitor so the run command (started by service) won't hang
-        var monitorTask = Task.Run(() => Program.Execute(new RunAsMonitor(TimeSpan.FromSeconds(30)), cts.Token));
+        var monitorTask = Task.Run(() => Program.Execute(new RunAsMonitor(TimeSpan.FromSeconds(30), true), cts.Token));
         using (var pipe = new NamedPipeClientStream(".", Program.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous))
         {
             while (!pipe.IsConnected && !cts.IsCancellationRequested)
@@ -235,7 +235,7 @@ public static partial class ProgramTests
         using var cts = new CancellationTokenSource(30000);
 
         // start the monitor so the run command (started by service) won't hang
-        var monitorTask = Task.Run(() => Program.Execute(new RunAsMonitor(TimeSpan.FromSeconds(30)), cts.Token));
+        var monitorTask = Task.Run(() => Program.Execute(new RunAsMonitor(TimeSpan.FromSeconds(30), true), cts.Token));
         using (var pipe = new NamedPipeClientStream(".", Program.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous))
         {
             while (!pipe.IsConnected && !cts.IsCancellationRequested)

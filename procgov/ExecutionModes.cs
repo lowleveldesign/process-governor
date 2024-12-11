@@ -25,7 +25,7 @@ record RunAsCmdApp(
     LaunchConfig LaunchConfig,
     ExitBehavior ExitBehavior) : IExecutionMode;
 
-record RunAsMonitor(TimeSpan MaxMonitorIdleTime) : IExecutionMode;
+record RunAsMonitor(TimeSpan MaxMonitorIdleTime, bool NoGui) : IExecutionMode;
 
 record RunAsService : IExecutionMode;
 

@@ -10,31 +10,52 @@ namespace ProcessGovernor;
 
 internal unsafe static class AccountPrivilegeModule
 {
-    internal static List<(string PrivilegeName, bool IsSuccess)> EnableProcessPrivileges(SafeHandle processHandle, 
+    internal static List<(string PrivilegeName, bool IsSuccess)> EnableProcessPrivileges(SafeHandle processHandle,
         List<(string PrivilegeName, bool Required)> privileges)
     {
-        CheckWin32Result(PInvoke.OpenProcessToken(processHandle, TOKEN_ACCESS_MASK.TOKEN_QUERY | TOKEN_ACCESS_MASK.TOKEN_ADJUST_PRIVILEGES,
-            out var tokenHandle));
+        if (privileges.Count == 0)
+        {
+            return [];
+        }
+
+        if (!PInvoke.OpenProcessToken(processHandle, TOKEN_ACCESS_MASK.TOKEN_QUERY | TOKEN_ACCESS_MASK.TOKEN_ADJUST_PRIVILEGES,
+            out var tokenHandle))
+        {
+            var err = Marshal.GetLastWin32Error();
+            if (privileges.Any(priv => priv.Required))
+            {
+                throw new Win32Exception(err);
+            }
+            return privileges.Select(priv => (priv.PrivilegeName, false)).ToList();
+        }
+
         try
         {
-            return privileges.Select(privilege =>
+            return privileges.Select(priv =>
             {
-                CheckWin32Result(PInvoke.LookupPrivilegeValue(null, privilege.PrivilegeName, out var luid));
+                var err = (int)WIN32_ERROR.NO_ERROR;
 
-                var privileges = new TOKEN_PRIVILEGES
+                if (PInvoke.LookupPrivilegeValue(null, priv.PrivilegeName, out var luid))
                 {
-                    PrivilegeCount = 1,
-                    Privileges = new() { e0 = new LUID_AND_ATTRIBUTES { Luid = luid, Attributes = TOKEN_PRIVILEGES_ATTRIBUTES.SE_PRIVILEGE_ENABLED } }
-                };
-                PInvoke.AdjustTokenPrivileges(tokenHandle, false, &privileges, 0, null, null);
-                var lastWin32Error = Marshal.GetLastWin32Error();
-
-                if (lastWin32Error != (int)WIN32_ERROR.NO_ERROR && privilege.Required)
+                    var privileges = new TOKEN_PRIVILEGES
+                    {
+                        PrivilegeCount = 1,
+                        Privileges = new() { e0 = new LUID_AND_ATTRIBUTES { Luid = luid, Attributes = TOKEN_PRIVILEGES_ATTRIBUTES.SE_PRIVILEGE_ENABLED } }
+                    };
+                    PInvoke.AdjustTokenPrivileges(tokenHandle, false, &privileges, 0, null, null);
+                    err = Marshal.GetLastWin32Error();
+                }
+                else
                 {
-                    throw new Win32Exception(lastWin32Error);
+                    err = Marshal.GetLastWin32Error();
                 }
 
-                return (privilege.PrivilegeName, lastWin32Error == (int)WIN32_ERROR.NO_ERROR);
+                if (err != (int)WIN32_ERROR.NO_ERROR && priv.Required)
+                {
+                    throw new Win32Exception(err);
+                }
+
+                return (priv.PrivilegeName, err == (int)WIN32_ERROR.NO_ERROR);
             }).ToList();
         }
         finally

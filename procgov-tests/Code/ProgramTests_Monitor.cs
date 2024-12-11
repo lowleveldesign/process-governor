@@ -33,7 +33,7 @@ public static partial class ProgramTests
     {
         using var cts = new CancellationTokenSource(10000);
 
-        var monitorTask = Task.Run(() => Program.Execute(new RunAsMonitor(Program.DefaultMaxMonitorIdleTime), cts.Token));
+        var monitorTask = Task.Run(() => Program.Execute(new RunAsMonitor(Program.DefaultMaxMonitorIdleTime, true), cts.Token));
 
         using var pipe = new NamedPipeClientStream(".", Program.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
 
@@ -267,7 +267,7 @@ public static partial class ProgramTests
         try { await pipe.ConnectAsync(10, ct); }
         catch
         {
-            _ = Task.Run(() => Program.Execute(new RunAsMonitor(Program.DefaultMaxMonitorIdleTime), ct));
+            _ = Task.Run(() => Program.Execute(new RunAsMonitor(Program.DefaultMaxMonitorIdleTime, true), ct));
 
             while (!pipe.IsConnected && !ct.IsCancellationRequested)
             {
