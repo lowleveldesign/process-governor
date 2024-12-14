@@ -23,7 +23,19 @@ static class SystemInfoModule
 {
     public static SystemInfo GetSystemInfo()
     {
-        return new(GetNumaNodes(), GetProcessorGroups(), GetProcessorCores());
+        var processorGroups = GetProcessorGroups();
+        NumaNode[] numaNodes = [];
+        try
+        {
+            numaNodes = GetNumaNodes();
+        }
+        catch (Win32Exception ex)
+        {
+            Program.Logger.TraceInformation($"NUMA information not available (Is it Windows Home?). Error: {ex}");
+            numaNodes = [new(0, processorGroups)];
+        }
+
+        return new(numaNodes, processorGroups, GetProcessorCores());
 
         static NumaNode[] GetNumaNodes()
         {
@@ -69,78 +81,78 @@ static class SystemInfoModule
             }
         }
 
-    static ProcessorGroup[] GetProcessorGroups()
-    {
-        unsafe
+        static ProcessorGroup[] GetProcessorGroups()
         {
-            uint length = 0;
-            PInvoke.GetLogicalProcessorInformationEx(LOGICAL_PROCESSOR_RELATIONSHIP.RelationGroup, null, &length);
-            if (Marshal.GetLastWin32Error() is var lastError && lastError != (int)WIN32_ERROR.ERROR_INSUFFICIENT_BUFFER)
+            unsafe
             {
-                throw new Win32Exception(lastError);
+                uint length = 0;
+                PInvoke.GetLogicalProcessorInformationEx(LOGICAL_PROCESSOR_RELATIONSHIP.RelationGroup, null, &length);
+                if (Marshal.GetLastWin32Error() is var lastError && lastError != (int)WIN32_ERROR.ERROR_INSUFFICIENT_BUFFER)
+                {
+                    throw new Win32Exception(lastError);
+                }
+
+                byte* infoBytes = stackalloc byte[(int)length];
+                if (!PInvoke.GetLogicalProcessorInformationEx(LOGICAL_PROCESSOR_RELATIONSHIP.RelationGroup,
+                    (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)infoBytes, &length))
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                }
+                var info = ((SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)infoBytes);
+
+                ref var relationGroup = ref info->Anonymous.Group;
+
+                var processorGroups = new ProcessorGroup[relationGroup.ActiveGroupCount];
+
+                var groupInfos = relationGroup.GroupInfo.AsSpan(relationGroup.ActiveGroupCount);
+
+                for (ushort groupNumber = 0; groupNumber < relationGroup.ActiveGroupCount; groupNumber++)
+                {
+                    ref var groupInfo = ref groupInfos[groupNumber];
+                    processorGroups[groupNumber] = new ProcessorGroup(groupNumber, groupInfo.ActiveProcessorMask);
+                }
+
+                return processorGroups;
             }
-
-            byte* infoBytes = stackalloc byte[(int)length];
-            if (!PInvoke.GetLogicalProcessorInformationEx(LOGICAL_PROCESSOR_RELATIONSHIP.RelationGroup,
-                (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)infoBytes, &length))
-            {
-                throw new Win32Exception(Marshal.GetLastWin32Error());
-            }
-            var info = ((SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)infoBytes);
-
-            ref var relationGroup = ref info->Anonymous.Group;
-
-            var processorGroups = new ProcessorGroup[relationGroup.ActiveGroupCount];
-
-            var groupInfos = relationGroup.GroupInfo.AsSpan(relationGroup.ActiveGroupCount);
-
-            for (ushort groupNumber = 0; groupNumber < relationGroup.ActiveGroupCount; groupNumber++)
-            {
-                ref var groupInfo = ref groupInfos[groupNumber];
-                processorGroups[groupNumber] = new ProcessorGroup(groupNumber, groupInfo.ActiveProcessorMask);
-            }
-
-            return processorGroups;
         }
-    }
 
-    static ProcessorCore[] GetProcessorCores()
-    {
-        unsafe
+        static ProcessorCore[] GetProcessorCores()
         {
-            uint length = 0;
-            PInvoke.GetLogicalProcessorInformationEx(LOGICAL_PROCESSOR_RELATIONSHIP.RelationProcessorCore, null, &length);
-            if (Marshal.GetLastWin32Error() is var lastError && lastError != (int)WIN32_ERROR.ERROR_INSUFFICIENT_BUFFER)
+            unsafe
             {
-                throw new Win32Exception(lastError);
+                uint length = 0;
+                PInvoke.GetLogicalProcessorInformationEx(LOGICAL_PROCESSOR_RELATIONSHIP.RelationProcessorCore, null, &length);
+                if (Marshal.GetLastWin32Error() is var lastError && lastError != (int)WIN32_ERROR.ERROR_INSUFFICIENT_BUFFER)
+                {
+                    throw new Win32Exception(lastError);
+                }
+
+                byte* infoBytes = stackalloc byte[(int)length];
+                if (!PInvoke.GetLogicalProcessorInformationEx(LOGICAL_PROCESSOR_RELATIONSHIP.RelationProcessorCore,
+                    (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)infoBytes, &length))
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                }
+
+                var cores = new List<ProcessorCore>();
+                var infoBytesEndAddress = infoBytes + length;
+
+                while (infoBytes < infoBytesEndAddress)
+                {
+                    var info = (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)infoBytes;
+
+                    ref var processor = ref info->Anonymous.Processor;
+
+                    var group = processor.GroupMask[0];
+                    cores.Add(new(processor.Flags == PInvoke.LTP_PC_SMT, new(group.Group, group.Mask)));
+
+                    infoBytes += info->Size;
+                }
+                Debug.Assert(infoBytes == infoBytesEndAddress, $"{(nint)infoBytes} == {(nint)infoBytesEndAddress}");
+
+                return [.. cores];
             }
-
-            byte* infoBytes = stackalloc byte[(int)length];
-            if (!PInvoke.GetLogicalProcessorInformationEx(LOGICAL_PROCESSOR_RELATIONSHIP.RelationProcessorCore,
-                (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)infoBytes, &length))
-            {
-                throw new Win32Exception(Marshal.GetLastWin32Error());
-            }
-
-            var cores = new List<ProcessorCore>();
-            var infoBytesEndAddress = infoBytes + length;
-
-            while (infoBytes < infoBytesEndAddress)
-            {
-                var info = (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)infoBytes;
-
-                ref var processor = ref info->Anonymous.Processor;
-
-                var group = processor.GroupMask[0];
-                cores.Add(new(processor.Flags == PInvoke.LTP_PC_SMT, new(group.Group, group.Mask)));
-
-                infoBytes += info->Size;
-            }
-            Debug.Assert(infoBytes == infoBytesEndAddress, $"{(nint)infoBytes} == {(nint)infoBytesEndAddress}");
-
-            return [.. cores];
         }
-    }
     }
 
     public static PerformanceInformation GetSystemPerformanceInformation()

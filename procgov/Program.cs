@@ -180,6 +180,11 @@ static partial class Program
                                 "terminate-job-on-exit", "background", "service", "q", "quiet", "nowait", "v", "verbose",
                                 "nomonitor", "monitor", "uninstall-all" , "h", "?", "help"], rawArgs);
 
+            if (parsedArgs.Remove("v") || parsedArgs.Remove("verbose"))
+            {
+                Logger.Switch.Level = SourceLevels.Verbose;
+            }
+
             if (parsedArgs.Count == 0)
             {
                 return new ShowSystemInfoAndExit();
@@ -246,11 +251,6 @@ static partial class Program
                 false when nowait => ExitBehavior.DontWaitForJobCompletion,
                 _ => ExitBehavior.WaitForJobCompletion
             };
-
-            if (parsedArgs.Remove("v") || parsedArgs.Remove("verbose"))
-            {
-                Logger.Switch.Level = SourceLevels.Verbose;
-            }
 
             var environment = parsedArgs.Remove("env", out v) ? GetCustomEnvironmentVariables(v[^1]) : [];
 
