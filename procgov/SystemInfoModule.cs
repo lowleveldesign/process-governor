@@ -31,7 +31,7 @@ static class SystemInfoModule
         }
         catch (Win32Exception ex)
         {
-            Program.Logger.TraceInformation($"NUMA information not available (Is it Windows Home?). Error: {ex}");
+            Program.Logger.TraceInformation($"NUMA information not available (is it Windows Home?). Error: {ex.Message}");
             numaNodes = [new(0, processorGroups)];
         }
 
