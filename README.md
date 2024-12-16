@@ -81,10 +81,10 @@ procgov.exe -m 100M -- test.exe -arg1 -arg2=val2 arg3
 
 ### Setting limits on multiple processes
 
-You may assign multiple processes to the same job object. When you provide more than one process ID to the **-p** parameter, procgov will apply the same limits for all the processes, for example:
+You may assign multiple processes to the same job object. When you use the **-p** parameter multiple times with different process IDs, procgov will apply the same limits for all the processes, for example:
 
 ```shell
-procgov.exe --maxmem 100M --pid 1234,1235,1236
+procgov.exe --maxmem 100M -p 1234 -p 1235 -p 1236
 ```
 
 If any of the processes was already assigned to a procgov job object, others will be assigned to it as well.
@@ -225,10 +225,10 @@ You may set the environment variables when starting a new process or accessing a
 
 ### Enable process privileges
 
-Starting from version 2.10, you can enable privileges in the target process with the **--enable-privileges** switch. You may specify multiple privileges, separated by a comma, for example:
+You can enable privileges in the target process with the **--enable-privilege** switch. You may specify multiple privileges by using this parameter multiple times, for example:
 
 ```shell
-procgov.exe --enable-privileges=SeDebugPrivilege,SeShutdownPrivilege notepad
+procgov.exe --enable-privilege=SeDebugPrivilege --enable-privilege=SeShutdownPrivilege notepad
 ```
 
 Keep in mind that in Windows, you can't add new privileges to the process token. You may only enable existing ones. You may check the available process privileges in Process Hacker or Process Explorer. Check the documentation for a given privilege to learn how to make it available for a given user (for example, you may need to update group policies).
