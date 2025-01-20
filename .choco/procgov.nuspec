@@ -14,6 +14,7 @@
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <projectSourceUrl>https://github.com/lowleveldesign/process-governor</projectSourceUrl>
     <docsUrl>https://github.com/lowleveldesign/process-governor#readme</docsUrl>
+    <iconUrl>https://raw.githubusercontent.com/lowleveldesign/process-governor/refs/heads/master/docs/procgov-logo-white.png</iconUrl>
     <bugTrackerUrl>https://github.com/lowleveldesign/process-governor/issues</bugTrackerUrl>
     <tags>windows process limit</tags>
     <summary>This application allows you to put various limits on a Windows process.</summary>
