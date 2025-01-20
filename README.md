@@ -1,9 +1,8 @@
+<img src="docs/procgov-logo-white.png" alt="logo" width="100" />
 
 # Process Governor
 
 ![.NET](https://github.com/lowleveldesign/process-governor/workflows/build/badge.svg)
-
-<img src="docs/procgov-logo-white.png" alt="logo" width="100" />
 
 This application allows you to set constraints on Windows processes. It uses [a job object](https://msdn.microsoft.com/en-us/library/windows/desktop/ms684161(v=vs.85).aspx) for this purpose. 
 
