@@ -9,7 +9,6 @@ using System.Security.AccessControl;
 using System.Security.Principal;
 using Windows.Win32;
 using Windows.Win32.Foundation;
-using Windows.Win32.UI.WindowsAndMessaging;
 
 using static ProcessGovernor.NtApi;
 
@@ -26,7 +25,7 @@ static partial class Program
         {
             if (monitor.NoGui)
             {
-                PInvoke.ShowWindow(PInvoke.GetConsoleWindow(), SHOW_WINDOW_CMD.SW_HIDE);
+                PInvoke.FreeConsole();
             }
 
             await StartMonitor(monitor.MaxMonitorIdleTime, ct);

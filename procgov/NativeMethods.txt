@@ -16,6 +16,7 @@ DuplicateHandle
 DuplicateTokenEx
 EnumProcessModulesEx
 GetConsoleWindow
+FreeConsole
 GetCurrentProcess
 GetCurrentThread
 GetExitCodeProcess

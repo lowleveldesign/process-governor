@@ -1,6 +1,5 @@
 ﻿using MessagePack;
 using MessagePack.Resolvers;
-using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Diagnostics.Tracing;
@@ -147,8 +146,9 @@ static partial class Program
             Console.WriteLine($"NUMA Node {numaNode.Number}:");
             foreach (var processorGroup in numaNode.ProcessorGroups)
             {
-                var groupCpus = string.Join(',', cpuCores.Index().Where(
-                    ii => (ii.Item.ProcessorGroup.AffinityMask & processorGroup.AffinityMask) != 0).Select(ii => ii.Index));
+                var groupCpus = string.Join(',', CreateRanges([..cpuCores.Index().Where(
+                    ii => (ii.Item.ProcessorGroup.AffinityMask & processorGroup.AffinityMask) != 0).Select(ii => ii.Index)]).Select(
+                    r => r.Start.Equals(r.End) ? $"{r.Start}" : $"{r.Start}-{r.End}"));
                 Console.WriteLine($"  Processor Group {processorGroup.Number}: {(processorGroup.AffinityMask):X16} (CPUs: {groupCpus})");
             }
             Console.WriteLine();
@@ -162,6 +162,23 @@ static partial class Program
         Console.WriteLine();
 
         return 0;
+
+        static List<Range> CreateRanges(int[] nums)
+        {
+            Debug.Assert(nums.Length > 0);
+            List<Range> result = [];
+            int start = nums[0];
+            for (int i = 1; i < nums.Length; i++)
+            {
+                if (nums[i] - nums[i - 1] > 1)
+                {
+                    result.Add(new(start, nums[i - 1]));
+                    start = nums[i];
+                }
+            }
+            result.Add(new(start, nums[^1]));
+            return result;
+        }
     }
 
     static void ShowHeader()

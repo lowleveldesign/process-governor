@@ -137,8 +137,7 @@ static partial class Program
                 fixed (char* cmdlinePtr = cmdline)
                 {
                     CheckWin32Result(PInvoke.CreateProcess(null, new PWSTR(cmdlinePtr), null, null, false,
-                        PROCESS_CREATION_FLAGS.CREATE_NEW_PROCESS_GROUP | PROCESS_CREATION_FLAGS.CREATE_NEW_CONSOLE,
-                        null, null, &si, &pi));
+                        0, null, null, &si, &pi));
                 }
 
                 PInvoke.CloseHandle(pi.hProcess);
