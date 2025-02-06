@@ -1,11 +1,11 @@
 ﻿using Microsoft.Win32.SafeHandles;
 using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Windows.Win32.Foundation;
 
-namespace ProcessGovernor;
-
-static partial class NtApi
+namespace ProcessGovernor.Win32;
+static partial class Helpers
 {
     public static T CheckWin32Result<T>(T result)
     {
@@ -29,6 +29,50 @@ static partial class NtApi
 
     public delegate int QueueApcThread(nint ThreadHandle, nint ApcRoutine, nint ApcArgument1, nint ApcArgument2, nint ApcArgument3);
 
+    public static HANDLE ToWin32Handle(this SafeHandle h) => (HANDLE)h.DangerousGetHandle();
+}
+
+/* ** NT JOB API ** */
+
+[Flags]
+enum FreezeInformationFlags : uint
+{
+    FreezeOperation = 0x0001,
+    FilterOperation = 0x0002,
+    SwapOperation = 0x0004
+}
+
+[StructLayout(LayoutKind.Sequential)]
+struct JOBOBJECT_WAKE_FILTER
+{
+    public uint HighWatermark;
+    public uint LowWatermark;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+struct JOBOBJECT_FREEZE_INFORMATION
+{
+    public FreezeInformationFlags Flags;
+    public byte Freeze;
+    public byte Swap;
+    public byte Reserved0;
+    public byte Reserved1;
+    JOBOBJECT_WAKE_FILTER WakeFilter;
+}
+
+/* ** NT API ** */
+
+[StructLayout(LayoutKind.Sequential)]
+public struct CLIENT_ID
+{
+    public IntPtr UniqueProcess;
+    public IntPtr UniqueThread;
+}
+
+/* ** ** */
+
+static partial class PInvoke
+{
     /// <summary>
     /// NT function definitions are modified (or not) versions
     /// from https://github.com/googleprojectzero/sandbox-attacksurface-analysis-tools
@@ -47,129 +91,6 @@ static partial class NtApi
     ///  See the License for the specific language governing permissions and
     ///  limitations under the License.
     /// </summary>
-    [StructLayout(LayoutKind.Sequential)]
-    public struct PROCESS_BASIC_INFORMATION
-    {
-        public int ExitStatus;
-        public IntPtr PebBaseAddress;
-        public IntPtr AffinityMask;
-        public int BasePriority;
-        public IntPtr UniqueProcessId;
-        public IntPtr InheritedFromUniqueProcessId;
-    }
-
-    [Flags]
-    public enum PebFlags : byte
-    {
-        None = 0,
-        ImageUsesLargePages = 0x01,
-        IsProtectedProcess = 0x02,
-        IsImageDynamicallyRelocated = 0x04,
-        SkipPatchingUser32Forwarders = 0x08,
-        IsPackagedProcess = 0x10,
-        IsAppContainer = 0x20,
-        IsProtectedProcessLight = 0x40,
-        IsLongPathAwareProcess = 0x80,
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct PartialPEB
-    {
-        [MarshalAs(UnmanagedType.U1)]
-        public bool InheritedAddressSpace;
-        [MarshalAs(UnmanagedType.U1)]
-        public bool ReadImageFileExecOptions;
-        [MarshalAs(UnmanagedType.U1)]
-        public bool BeingDebugged;
-        public PebFlags PebFlags;
-        public IntPtr Mutant;
-        public IntPtr ImageBaseAddress;
-        public IntPtr Ldr; // PPEB_LDR_DATA
-        public IntPtr ProcessParameters; // PRTL_USER_PROCESS_PARAMETERS
-    }
-
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    public struct UNICODE_STRING
-    {
-        ushort Length;
-        ushort MaximumLength;
-        [MarshalAs(UnmanagedType.LPWStr)]
-        string? Buffer;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct CURDIR
-    {
-        public UNICODE_STRING DosPath;
-        public IntPtr Handle;
-    }
-
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
-    public struct STRING
-    {
-        private ushort Length;
-        private ushort MaximumLength;
-        private string? Buffer;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct RTL_DRIVE_LETTER_CURDIR
-    {
-        public ushort Flags;
-        public ushort Length;
-        public uint TimeStamp;
-        public STRING DosPath;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct RTL_USER_PROCESS_PARAMETERS
-    {
-        public int MaximumLength;
-        public int Length;
-        public int Flags;
-        public int DebugFlags;
-        public IntPtr ConsoleHandle;
-        public int ConsoleFlags;
-        public IntPtr StdInputHandle;
-        public IntPtr StdOutputHandle;
-        public IntPtr StdErrorHandle;
-        public CURDIR CurrentDirectory;
-        public UNICODE_STRING DllPath;
-        public UNICODE_STRING ImagePathName;
-        public UNICODE_STRING CommandLine;
-        public IntPtr Environment;
-        public int StartingPositionLeft;
-        public int StartingPositionTop;
-        public int Width;
-        public int Height;
-        public int CharWidth;
-        public int CharHeight;
-        public int ConsoleTextAttributes;
-        public int WindowFlags;
-        public int ShowWindowFlags;
-        public UNICODE_STRING WindowTitle;
-        public UNICODE_STRING DesktopName;
-        public UNICODE_STRING ShellInfo;
-        public UNICODE_STRING RuntimeData;
-        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 0x20)]
-        public RTL_DRIVE_LETTER_CURDIR[] CurrentDirectories;
-        public IntPtr EnvironmentSize;
-        public IntPtr EnvironmentVersion;
-        public IntPtr PackageDependencyData;
-        public int ProcessGroupId;
-        public int LoaderThreads;
-        public UNICODE_STRING RedirectionDllName;
-        public UNICODE_STRING HeapPartitionName;
-        public IntPtr DefaultThreadpoolCpuSetMasks;
-        public int DefaultThreadpoolCpuSetMaskCount;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct CLIENT_ID
-    {
-        public IntPtr UniqueProcess;
-        public IntPtr UniqueThread;
-    }
 
     [LibraryImport("ntdll.dll")]
     internal static partial int RtlCreateUserThread(

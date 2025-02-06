@@ -715,7 +715,7 @@ public static partial class ProgramTests
     }
 
     [Test]
-    public static void ParseEmptyArgs()
+    public static void ParseArgsEmptyArgs()
     {
         Assert.That(Program.ParseArgs(RealSystemInfo, []) is ShowSystemInfoAndExit);
     }
@@ -737,18 +737,27 @@ public static partial class ProgramTests
     }
 
     [Test]
-    public static void ParseArgsExitBehaviorArguments()
+    public static void ParseArgsBehavioralArguments()
     {
         Assert.That(Program.ParseArgs(RealSystemInfo, ["-m=10M", "test.exe"]) is RunAsCmdApp
         {
+            StartBehavior: StartBehavior.None,
             ExitBehavior: ExitBehavior.WaitForJobCompletion,
             LaunchConfig: LaunchConfig.Default
         });
 
-        Assert.That(Program.ParseArgs(RealSystemInfo, ["-m=10M", "-q", "--nowait", "test.exe"]) is RunAsCmdApp
+        Assert.That(Program.ParseArgs(RealSystemInfo, ["-m=10M", "--freeze", "test.exe"]) is RunAsCmdApp
         {
+            StartBehavior: StartBehavior.Freeze,
+            ExitBehavior: ExitBehavior.WaitForJobCompletion,
+            LaunchConfig: LaunchConfig.Default
+        });
+
+        Assert.That(Program.ParseArgs(RealSystemInfo, ["-m=10M", "-q", "--nowait", "--thaw", "test.exe"]) is RunAsCmdApp
+        {
+            StartBehavior: StartBehavior.Thaw,
             ExitBehavior: ExitBehavior.DontWaitForJobCompletion,
-            LaunchConfig: LaunchConfig.Quiet
+            LaunchConfig: LaunchConfig.Quiet,
         });
 
 
@@ -756,6 +765,11 @@ public static partial class ProgramTests
         {
             ExitBehavior: ExitBehavior.TerminateJobOnExit,
             LaunchConfig: LaunchConfig.NoGui | LaunchConfig.NoMonitor
+        });
+
+        Assert.That(Program.ParseArgs(RealSystemInfo, ["-m=10M", "--freeze", "--thaw", "test.exe"]) is ShowHelpAndExit
+        {
+            ErrorMessage: "--thaw and --freeze cannot be set at the same time"
         });
 
         Assert.That(Program.ParseArgs(RealSystemInfo, ["-m=10M", "--terminate-job-on-exit", "--nowait", "test.exe"]) is ShowHelpAndExit

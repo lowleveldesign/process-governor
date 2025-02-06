@@ -11,10 +11,11 @@ using Windows.Win32.System.Diagnostics.Debug;
 using Windows.Wdk.System.Threading;
 
 using PInvokeWdk = Windows.Wdk.PInvoke;
+using PInvokeProcGov = ProcessGovernor.Win32.PInvoke;
 
 using System.Diagnostics;
 
-using static ProcessGovernor.NtApi;
+using static ProcessGovernor.Win32.Helpers;
 using System.Text;
 
 namespace ProcessGovernor;
@@ -57,7 +58,7 @@ static class ProcessModule
 
     }
 
-    public unsafe static (Win32Process Process, SafeHandle MainThreadHandle) CreateSuspendedProcessWithJobAssigned(
+    public unsafe static Win32Process CreateProcessWithJobAssigned(
         IEnumerable<string> procArgs, bool newConsole, Dictionary<string, string> additionalEnvironmentVars, SafeHandle jobHandle)
     {
         var procThreadAttrList = new LPPROC_THREAD_ATTRIBUTE_LIST();
@@ -91,8 +92,7 @@ static class ProcessModule
                     StartupInfo = new STARTUPINFOW() { cb = (uint)sizeof(STARTUPINFOEXW) },
                     lpAttributeList = procThreadAttrList
                 };
-                var processCreationFlags = PROCESS_CREATION_FLAGS.EXTENDED_STARTUPINFO_PRESENT | 
-                    PROCESS_CREATION_FLAGS.CREATE_UNICODE_ENVIRONMENT | PROCESS_CREATION_FLAGS.CREATE_SUSPENDED;
+                var processCreationFlags = PROCESS_CREATION_FLAGS.EXTENDED_STARTUPINFO_PRESENT | PROCESS_CREATION_FLAGS.CREATE_UNICODE_ENVIRONMENT;
                 if (newConsole)
                 {
                     processCreationFlags |= PROCESS_CREATION_FLAGS.CREATE_NEW_CONSOLE;
@@ -112,8 +112,10 @@ static class ProcessModule
                     }
                 }
 
-                return (new Win32Process(new SafeFileHandle(processInfo.hProcess, true), processInfo.dwProcessId), 
-                    new SafeFileHandle(processInfo.hThread, true));
+                // we don't need the thread handle
+                PInvoke.CloseHandle(processInfo.hThread);
+
+                return new Win32Process(new SafeFileHandle(processInfo.hProcess, true), processInfo.dwProcessId);
             }
             finally
             {
@@ -185,13 +187,13 @@ static class ProcessModule
             var remoteThreadStart = ntdllHandle + (nint)fnRtlExitUserThread;
 
             var processRawHandle = processHandle.DangerousGetHandle();
-            if (RtlCreateUserThread(processRawHandle, nint.Zero, true, 0, 0, 0, remoteThreadStart,
+            if (PInvokeProcGov.RtlCreateUserThread(processRawHandle, nint.Zero, true, 0, 0, 0, remoteThreadStart,
                  nint.Zero, out var remoteThreadHandle, out _) is var status && status != 0)
             {
                 throw new Win32Exception((int)PInvoke.RtlNtStatusToDosError(new NTSTATUS(status)));
             }
 
-            QueueApcThread queueApcThreadFunc = isWow64 ? RtlQueueApcWow64Thread : NtQueueApcThread;
+            QueueApcThread queueApcThreadFunc = isWow64 ? PInvokeProcGov.RtlQueueApcWow64Thread : PInvokeProcGov.NtQueueApcThread;
 
             try
             {
@@ -285,13 +287,13 @@ static class ProcessModule
             var remoteThreadStart = ntdllHandle + (nint)fnRtlExitUserThread;
 
             var processRawHandle = processHandle.DangerousGetHandle();
-            if (RtlCreateUserThread(processRawHandle, nint.Zero, true, 0, 0, 0, remoteThreadStart,
+            if (PInvokeProcGov.RtlCreateUserThread(processRawHandle, nint.Zero, true, 0, 0, 0, remoteThreadStart,
                  nint.Zero, out var remoteThreadHandle, out _) is var status && status != 0)
             {
                 throw new Win32Exception((int)PInvoke.RtlNtStatusToDosError(new NTSTATUS(status)));
             }
 
-            QueueApcThread queueApcThreadFunc = isWow64 ? RtlQueueApcWow64Thread : NtQueueApcThread;
+            QueueApcThread queueApcThreadFunc = isWow64 ? PInvokeProcGov.RtlQueueApcWow64Thread : PInvokeProcGov.NtQueueApcThread;
 
             try
             {

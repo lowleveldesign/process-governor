@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.Security;
-using static ProcessGovernor.NtApi;
+using static ProcessGovernor.Win32.Helpers;
 
 namespace ProcessGovernor;
 

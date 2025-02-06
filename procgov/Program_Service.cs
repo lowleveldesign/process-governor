@@ -193,7 +193,7 @@ static partial class Program
                                                 ExitBehavior.WaitForJobCompletion : ExitBehavior.DontWaitForJobCompletion;
                                             _ = Execute(new RunAsCmdApp(settings.JobSettings, new AttachToProcess([(uint)p.Id]),
                                                     settings.Environment, settings.Privileges, LaunchConfig.Quiet | LaunchConfig.NoGui,
-                                                    exitBehavior), ct);
+                                                    StartBehavior.None, exitBehavior), ct);
                                         }
                                     }
                                 }

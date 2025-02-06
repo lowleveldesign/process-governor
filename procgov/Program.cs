@@ -90,12 +90,15 @@ static partial class Program
                 -b|--bandwidth=            The maximum bandwidth (in bytes) for the process outgoing network traffic (accepted suffixes: K, M, or G). (Windows 10+)
                 -r|--recursive             Apply limits to child processes too (will wait for all processes to finish).
                    --newconsole            Start the process in a new console window.
-                   --nogui                 Hide Process Governor console window (set always when installed as debugger).
+                   --nogui                 Hide Process Governor console window.
                 -p|--pid=                  Apply limits on an already running process (or processes if used multiple times)
                 -t|--timeout=              Kill the process (with -r, also all its children) if it does not finish within the specified time. Add suffix to define the time unit. Valid suffixes are: ms, s, m, h.
                    --process-utime=        Kill the process (with -r, also applies to its children) if it exceeds the given user-mode execution time. Add suffix to define the time unit. Valid suffixes are: ms, s, m, h.
                    --priority=             Sets the process priority class of monitored processes. Possible values: Idle, BelowNormal, Normal, AboveNormal, High, RealTime.
                    --job-utime=            Kill the process (with -r, also all its children) if the total user-mode execution time exceed the specified value. Add suffix to define the time unit. Valid suffixes are: ms, s, m, h.
+
+                   --freeze                Freezes (suspends) the process or group of processes (EXPERIMENTAL).
+                   --thaw                  Thaws (resumes) the process or group of processes (EXPERIMENTAL).
 
                    --enable-privilege=     Enables the specified privileges in the remote process. You may specify multiple privileges by splitting them with commas, for example, 'SeDebugPrivilege,SeLockMemoryPrivilege'
                    --terminate-job-on-exit Terminates the job (and all its processes) when you stop procgov with Ctrl + C.
@@ -195,7 +198,7 @@ static partial class Program
         {
             var parsedArgs = ParseRawArgs(["newconsole", "r", "recursive", "newconsole", "nogui", "install", "uninstall",
                                 "terminate-job-on-exit", "background", "service", "q", "quiet", "nowait", "v", "verbose",
-                                "nomonitor", "monitor", "uninstall-all" , "h", "?", "help"], rawArgs);
+                                "nomonitor", "monitor", "uninstall-all" , "h", "?", "help", "freeze", "thaw"], rawArgs);
 
             if (parsedArgs.Remove("v") || parsedArgs.Remove("verbose"))
             {
@@ -258,6 +261,14 @@ static partial class Program
             launchConfig |= parsedArgs.Remove("nomonitor") ? LaunchConfig.NoMonitor : 0;
 
             var nowait = parsedArgs.Remove("nowait");
+
+            var startBehavior = parsedArgs.Remove("thaw") ? StartBehavior.Thaw : 
+                (parsedArgs.Remove("freeze") ? StartBehavior.Freeze : StartBehavior.None);
+            if (parsedArgs.ContainsKey("freeze") || parsedArgs.ContainsKey("thaw"))
+            {
+                throw new ArgumentException("--thaw and --freeze cannot be set at the same time");
+            }
+
             var exitBehavior = parsedArgs.Remove("terminate-job-on-exit") switch
             {
                 true when nowait =>
@@ -326,9 +337,11 @@ static partial class Program
                 ([var executable], [], false, false, false, true, false) => new RemoveProcessGovernance(executable, serviceInstallPath),
                 ([], [], false, false, false, false, true) => new RemoveAllProcessGovernance(serviceInstallPath),
                 (_, [], false, false, false, false, false) when procargs.Count > 0 =>
-                    new RunAsCmdApp(jobSettings, new LaunchProcess(procargs, newConsole), environment, privileges, launchConfig, exitBehavior),
+                    new RunAsCmdApp(jobSettings, new LaunchProcess(procargs, newConsole), environment, privileges, 
+                        launchConfig, startBehavior, exitBehavior),
                 ([], _, false, false, false, false, false) when pids.Length > 0 =>
-                    new RunAsCmdApp(jobSettings, new AttachToProcess(pids), environment, privileges, launchConfig, exitBehavior),
+                    new RunAsCmdApp(jobSettings, new AttachToProcess(pids), environment, privileges, 
+                        launchConfig, startBehavior, exitBehavior),
                 _ => throw new ArgumentException("invalid arguments provided")
             };
         }

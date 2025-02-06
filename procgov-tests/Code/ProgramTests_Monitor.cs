@@ -12,6 +12,8 @@ using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.System.Threading;
 
+using static ProcessGovernor.Win32.Helpers;
+
 namespace ProcessGovernor.Tests.Code;
 
 public static partial class ProgramTests
@@ -325,7 +327,7 @@ public static partial class ProgramTests
         // job settings check
         Assert.That(await SharedApi.TryGetJobSettingsFromMonitor(pid, ct), Is.EqualTo(jobSettings));
 
-        NtApi.CheckWin32Result(PInvoke.ResumeThread(threadHandle));
+        CheckWin32Result(PInvoke.ResumeThread(threadHandle));
 
         // notification listener should finish as the pipe gets diconnected
         await notificationListenerTask;
@@ -363,7 +365,7 @@ public static partial class ProgramTests
 
                 unsafe
                 {
-                    NtApi.CheckWin32Result(PInvoke.CreateProcess(null, (char*)processArgsPtr, null, null,
+                    CheckWin32Result(PInvoke.CreateProcess(null, (char*)processArgsPtr, null, null,
                         false, processCreationFlags, null, null, &si, &pi));
                 }
 

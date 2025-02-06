@@ -10,7 +10,7 @@ using System.Security.Principal;
 using Windows.Win32;
 using Windows.Win32.Foundation;
 
-using static ProcessGovernor.NtApi;
+using static ProcessGovernor.Win32.Helpers;
 
 namespace ProcessGovernor;
 

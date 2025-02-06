@@ -1,5 +1,7 @@
 ﻿namespace ProcessGovernor;
 
+enum StartBehavior { Freeze, Thaw, None };
+
 enum ExitBehavior { WaitForJobCompletion, DontWaitForJobCompletion, TerminateJobOnExit };
 
 [Flags]
@@ -23,6 +25,7 @@ record RunAsCmdApp(
     Dictionary<string, string> Environment,
     List<string> Privileges,
     LaunchConfig LaunchConfig,
+    StartBehavior StartBehavior,
     ExitBehavior ExitBehavior) : IExecutionMode;
 
 record RunAsMonitor(TimeSpan MaxMonitorIdleTime, bool NoGui) : IExecutionMode;

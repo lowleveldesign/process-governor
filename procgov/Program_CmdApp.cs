@@ -6,7 +6,7 @@ using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.System.Threading;
 using Windows.Win32.UI.WindowsAndMessaging;
-using static ProcessGovernor.NtApi;
+using static ProcessGovernor.Win32.Helpers;
 
 namespace ProcessGovernor;
 
@@ -46,19 +46,23 @@ static partial class Program
             using var job = Win32JobModule.CreateJob(Win32JobModule.GetNewJobName());
 
             Win32JobModule.SetLimits(job, app.JobSettings);
+            // in launch mode, we always freeze to setup the privileges before the process starts execution
+            Win32JobModule.SetJobFreezeStatus(job, true);
 
             if (!noMonitor)
             {
                 await StartOrUpdateMonitoring(job);
             }
 
-            var (targetProcess, mainThreadHandle) = ProcessModule.CreateSuspendedProcessWithJobAssigned(
+            var targetProcess  = ProcessModule.CreateProcessWithJobAssigned(
                 l.Procargs, l.NewConsole, app.Environment, job.Handle);
 
             SetupProcessPrivileges(targetProcess);
 
-            CheckWin32Result(PInvoke.ResumeThread(mainThreadHandle));
-            mainThreadHandle.Dispose();
+            if (app.StartBehavior != StartBehavior.Freeze)
+            {
+                Win32JobModule.SetJobFreezeStatus(job, false);
+            }
 
             if (!quiet)
             {
@@ -85,6 +89,11 @@ static partial class Program
             }
 
             using var job = await AttachJobToProcesses(targetProcesses);
+
+            if (app.StartBehavior != StartBehavior.None)
+            {
+                Win32JobModule.SetJobFreezeStatus(job, app.StartBehavior == StartBehavior.Freeze);
+            }
 
             if (!quiet)
             {

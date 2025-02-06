@@ -29,12 +29,14 @@ This application allows you to set constraints on Windows processes. It uses [a 
     - [Set the priority class](#set-the-priority-class)
     - [Set additional environment variables for a process](#set-additional-environment-variables-for-a-process)
     - [Enable process privileges](#enable-process-privileges)
+    - [Deep-freeze processes \(experimental\)](#deep-freeze-processes-experimental)
 - [Contributions](#contributions)
 - [Links](#links)
 
 <!-- /MarkdownTOC -->
 
-## Installation
+Installation
+------------
 
 You may download the latest version binaries from the [release page](https://github.com/lowleveldesign/process-governor/releases) or install it with [Chocolatey](https://chocolatey.org/) or [winget](https://learn.microsoft.com/en-us/windows/package-manager/winget/):
 
@@ -44,7 +46,8 @@ choco install procgov
 winget install procgov
 ```
 
-## Understanding procgov run modes
+Understanding procgov run modes
+-------------------------------
 
 ### The command-line application mode (default)
 
@@ -64,7 +67,8 @@ The ProcessGovernor service monitors starting processes and applies limits prede
 
 To uninstall the service, use the **--uninstall** switch. The service will be removed when you remove the last saved configuration. If you want to remove all saved procgov data, along with the service, use the **--uninstall-all** switch.
 
-## Applying limits on processes
+Applying limits on processes
+----------------------------
 
 ### Setting limits on a single process
 
@@ -102,7 +106,8 @@ Then we run procgov again with the new CPU limit - procgov will update the exist
 procgov.exe --nowait -c 4 -p 1234
 ```
 
-## Available process constraints
+Available process constraints
+-----------------------------
 
 ### Limit memory of a process
 
@@ -201,7 +206,8 @@ With the **--timeout** option you may define the maximum time (clock time) the p
 
 The **--process-utime** and **--job-utime** options allow you to set a limit on the maximum user-mode execution time for a process (with the **--recursive** option also all its children) or a job. The latter case will make sense with the **--recursive** option as it will set a limit on the total user-mode execution time for the process and its children.
 
-## Other options
+Other options
+-------------
 
 ### Set the priority class
 
@@ -234,7 +240,12 @@ procgov.exe --enable-privilege=SeDebugPrivilege --enable-privilege=SeShutdownPri
 
 Keep in mind that in Windows, you can't add new privileges to the process token. You may only enable existing ones. You may check the available process privileges in Process Hacker or Process Explorer. Check the documentation for a given privilege to learn how to make it available for a given user (for example, you may need to update group policies).
 
-## Contributions
+### Deep-freeze processes (experimental)
+
+You may use the --freeze and --thaw options to control execution of processes managed by procgov jobs. When launching a new process with the --freeze option, it will remain in a suspended state that occurs even earlier than when using the [CREATE_SUSPENDED flag](https://learn.microsoft.com/en-us/windows/win32/procthread/process-creation-flags). This means that even if there are missing imports, the process won't fail - instead, the main image will be loaded into memory, allowing for any necessary fixes to be made.
+
+Contributions
+-------------
 
 Below you may find a list of people who contributed to this project. Thank you!
 
@@ -242,7 +253,8 @@ Below you may find a list of people who contributed to this project. Thank you!
 - @beevvy - an issue report and a fix for a bug with the environment variables
 - @weidingerhp - an idea of environment variables for a process and CLR profiler setup
 
-## Links
+Links
+-----
 
 - **2013.11.21** - [Set process memory limit with Process Governor](http://lowleveldesign.wordpress.com/2013/11/21/set-process-memory-limit-with-process-governor)
 - **2016.10.21** - [Releasing wtrace 1.0 and procgov 2.0](https://lowleveldesign.wordpress.com/2016/10/21/releasing-wtrace-1-0-and-procgov-2-0/)
