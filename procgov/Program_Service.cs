@@ -41,9 +41,8 @@ static partial class Program
 
         if (!WindowsServiceModule.IsServiceInstalled(ServiceName))
         {
-            if (Path.GetFileName(Environment.ProcessPath) is { } executablePath)
+            if (Environment.ProcessPath is { } executablePath && Path.GetFileName(executablePath) is { } executableName)
             {
-                var executableName = Path.GetFileName(executablePath);
                 var installExecutablePath = Path.Combine(installData.ServiceInstallPath, executableName);
 
                 if (string.Compare(Path.TrimEndingDirectorySeparator(installData.ServiceInstallPath),
@@ -189,7 +188,7 @@ static partial class Program
                                                 $"Discovered a new process to be governed: {executablePath} ({p.Id}), job settings: {settings.JobSettings}");
 
                                             // when clock time limit is set we have to wait for the monitored job
-                                            ExitBehavior exitBehavior = settings.JobSettings.ClockTimeLimitInMilliseconds > 0 ? 
+                                            ExitBehavior exitBehavior = settings.JobSettings.ClockTimeLimitInMilliseconds > 0 ?
                                                 ExitBehavior.WaitForJobCompletion : ExitBehavior.DontWaitForJobCompletion;
                                             _ = Execute(new RunAsCmdApp(settings.JobSettings, new AttachToProcess([(uint)p.Id]),
                                                     settings.Environment, settings.Privileges, LaunchConfig.Quiet | LaunchConfig.NoGui,
