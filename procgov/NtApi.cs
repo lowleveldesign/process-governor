@@ -9,22 +9,25 @@ static partial class Helpers
 {
     public static T CheckWin32Result<T>(T result)
     {
-        var lastError = Marshal.GetLastPInvokeError();
-
-        return result switch
+        unsafe
         {
-            SafeHandle handle when !handle.IsInvalid => result,
-            HANDLE handle when (nint)WIN32_ERROR.ERROR_INVALID_HANDLE != handle.Value => result,
-            uint n when n != 0xffffffff => result,
-            bool b when b => result,
-            BOOL b when b => result,
-            WIN32_ERROR err when err == WIN32_ERROR.NO_ERROR => result,
-            WIN32_ERROR err => throw new Win32Exception((int)err),
-            WAIT_EVENT ev when ev != WAIT_EVENT.WAIT_FAILED => result,
-            NTSTATUS nt when nt.Value == 0 => result,
-            NTSTATUS nt => throw new Win32Exception(nt.Value),
-            _ => throw new Win32Exception(lastError)
-        };
+            var lastError = Marshal.GetLastPInvokeError();
+
+            return result switch
+            {
+                SafeHandle handle when !handle.IsInvalid => result,
+                HANDLE handle when (nuint)WIN32_ERROR.ERROR_INVALID_HANDLE != (nuint)handle.Value => result,
+                uint n when n != 0xffffffff => result,
+                bool b when b => result,
+                BOOL b when b => result,
+                WIN32_ERROR err when err == WIN32_ERROR.NO_ERROR => result,
+                WIN32_ERROR err => throw new Win32Exception((int)err),
+                WAIT_EVENT ev when ev != WAIT_EVENT.WAIT_FAILED => result,
+                NTSTATUS nt when nt.Value == 0 => result,
+                NTSTATUS nt => throw new Win32Exception(nt.Value),
+                _ => throw new Win32Exception(lastError)
+            };
+        }
     }
 
     public delegate int QueueApcThread(nint ThreadHandle, nint ApcRoutine, nint ApcArgument1, nint ApcArgument2, nint ApcArgument3);

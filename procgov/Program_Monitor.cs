@@ -1,8 +1,8 @@
 ﻿using MessagePack;
 using Microsoft.Win32.SafeHandles;
 using System.Buffers;
+using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
@@ -16,8 +16,9 @@ namespace ProcessGovernor;
 
 static partial class Program
 {
-    // main pipe used to receive commands from the client and respond to them
-    public static readonly string PipeName = Environment.IsPrivilegedProcess ? "procgov-system" : "procgov-user";
+    private static readonly SecurityIdentifier UserIdentifier = WindowsIdentity.GetCurrent(TokenAccessLevels.Query).User!;
+    internal static readonly string PipeName = Environment.IsPrivilegedProcess ?
+        $"procgov-{UserIdentifier.Value}_elevated" : $"procgov-{UserIdentifier.Value}";
 
     public static async Task<int> Execute(RunAsMonitor monitor, CancellationToken ct)
     {
@@ -36,27 +37,39 @@ static partial class Program
             return ex.HResult != 0 ? ex.HResult : -1;
         }
     }
-
     static async Task StartMonitor(TimeSpan maxMonitorIdleTime, CancellationToken ct)
     {
+        const nuint AnyJobHandle = 0;
+
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
-        using var monitoredJobs = new MonitoredJobs();
-        using var notifier = new Notifier();
+        ConcurrentDictionary<nuint, MonitoredJobData> monitoredJobs = [];
+        ConcurrentDictionary<string, Win32Job> jobNameWin32JobMap = [];
+        ConcurrentDictionary<uint, nuint> processIdJobHandleMap = [];
+        ConcurrentDictionary<nuint, NamedPipeServerStream[]> clients = [];
 
         using var iocpHandle = CheckWin32Result(PInvoke.CreateIoCompletionPort(new SafeFileHandle(HANDLE.INVALID_HANDLE_VALUE, true),
                                                     new SafeFileHandle(nint.Zero, true), nuint.Zero, 0));
 
-        var iocpListener = Task.Factory.StartNew(IOCPListener, cts.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        var iocpListener = Task.Factory.StartNew(IOCPListener, cts.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default)
+            .ContinueWith(t =>
+            {
+                if (t.IsFaulted)
+                {
+                    Logger.TraceEvent(TraceEventType.Warning, 0,
+                        $"[procgov monitor] Stopping monitor because IOCP listener faulted: {t.Exception}");
+                    cts.Cancel();
+                }
+            }, cts.Token);
 
         while (!cts.IsCancellationRequested)
         {
             var pipeSecurity = new PipeSecurity();
             // we always add current user (the one who started monitor)
-            if (WindowsIdentity.GetCurrent().User is { } currentUser)
-            {
-                pipeSecurity.SetAccessRule(new PipeAccessRule(currentUser, PipeAccessRights.FullControl, AccessControlType.Allow));
-            }
+            pipeSecurity.SetAccessRule(new PipeAccessRule(UserIdentifier, PipeAccessRights.FullControl, AccessControlType.Allow));
+            // and SYSTEM
+            pipeSecurity.SetAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
+                PipeAccessRights.FullControl, AccessControlType.Allow));
             // and administrators
             pipeSecurity.SetAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null),
                 PipeAccessRights.FullControl, AccessControlType.Allow));
@@ -64,14 +77,13 @@ static partial class Program
             var pipe = NamedPipeServerStreamAcl.Create(PipeName, PipeDirection.InOut, NamedPipeServerStream.MaxAllowedServerInstances,
                 PipeTransmissionMode.Byte, PipeOptions.WriteThrough | PipeOptions.Asynchronous, 0, 0, pipeSecurity);
 
-            bool pipeForwarded = false;
             try
             {
                 await pipe.WaitForConnectionAsync(cts.Token);
 
                 _ = StartClientThread(pipe);
 
-                pipeForwarded = true;
+                pipe = null;
             }
             catch (IOException ex)
             {
@@ -85,21 +97,18 @@ static partial class Program
             }
             finally
             {
-                if (!pipeForwarded)
-                {
-                    pipe.Dispose();
-                }
+                pipe?.Dispose();
             }
         }
+
 
         async Task StartClientThread(NamedPipeServerStream pipe)
         {
             PInvoke.GetNamedPipeClientProcessId(pipe.SafePipeHandle, out uint clientPid);
-            bool disposePipeOnExit = true;
             try
             {
                 var readBuffer = new ArrayBufferWriter<byte>(1024);
-                var writeBuffer = new ArrayBufferWriter<byte>(256);
+                var writeBuffer = new ArrayBufferWriter<byte>(1024);
 
                 while (!cts.IsCancellationRequested && pipe.IsConnected &&
                         await pipe.ReadAsync(readBuffer.GetMemory(), cts.Token) is var bytesRead && bytesRead > 0)
@@ -118,41 +127,54 @@ static partial class Program
                         {
                             case GetJobNameReq { ProcessId: var processId }:
                                 {
-                                    var resp = new GetJobNameResp(monitoredJobs.TryGetJobAssignedToProcess(processId,
-                                        out var jobData) ? jobData.Job.Name : "");
+                                    var resp = new GetJobNameResp(
+                                        processIdJobHandleMap.TryGetValue(processId, out var jobHandle) &&
+                                        monitoredJobs.TryGetValue(jobHandle, out var jobData) ? jobData.Job.Name : "");
                                     MessagePackSerializer.Serialize<IMonitorResponse>(writeBuffer, resp, cancellationToken: cts.Token);
                                     await pipe.WriteAsync(writeBuffer.WrittenMemory, cts.Token);
                                     break;
                                 }
                             case GetJobSettingsReq { JobName: var jobName }:
                                 {
-                                    var resp = new GetJobSettingsResp(monitoredJobs.TryGetJob(jobName, out var jobData) ?
-                                        jobData.JobSettings : new());
+                                    var resp = jobNameWin32JobMap.TryGetValue(jobName, out var job) && monitoredJobs.TryGetValue(job.NativeHandle, out var jobData)
+                                        ? new GetJobSettingsResp(jobName, jobData.JobSettings) : new GetJobSettingsResp("", new());
                                     MessagePackSerializer.Serialize<IMonitorResponse>(writeBuffer, resp, cancellationToken: cts.Token);
                                     await pipe.WriteAsync(writeBuffer.WrittenMemory, cts.Token);
                                     break;
                                 }
-                            case MonitorJobReq monitorJob:
+                            case MonitorJobReq { JobName: var jobName, JobSettings: var jobSettings, SubscribeToEvents: var subscribe }:
                                 {
-                                    if (!monitoredJobs.TryGetJob(monitorJob.JobName, out var jobData))
+                                    var job = jobNameWin32JobMap.AddOrUpdate(jobName,
+                                        (jobName) => Win32JobModule.OpenJob(jobName),
+                                        (jobName, existingJob) => existingJob);
+
+                                    // notify all-job subscribers about the new job
+                                    SendJobEventAndValidateStreams(AnyJobHandle, new NewOrUpdatedJobEvent(jobName, jobSettings), writeBuffer);
+                                    if (subscribe)
                                     {
-                                        var job = Win32JobModule.OpenJob(monitorJob.JobName);
-                                        jobData = new(job, monitorJob.JobSettings, 0);
-                                        monitoredJobs.AddOrUpdateJob(jobData);
-                                        Win32JobModule.AssignIOCompletionPort(job, iocpHandle);
-                                    }
-                                    else
-                                    {
-                                        monitoredJobs.AddOrUpdateJob(jobData with { JobSettings = monitorJob.JobSettings });
+                                        clients.AddOrUpdate(job.NativeHandle, _ => [pipe], (_, streams) => [.. streams, pipe]);
                                     }
 
-                                    if (monitorJob.SubscribeToEvents)
+                                    monitoredJobs.AddOrUpdate(job.NativeHandle, _ =>
                                     {
-                                        notifier.AddNotificationStream(jobData.Job.NativeHandle, pipe);
-                                        disposePipeOnExit = false;
+                                        var jobData = new MonitoredJobData(job, jobSettings);
+                                        Win32JobModule.AssignIOCompletionPort(jobData.Job, iocpHandle);
+                                        return jobData;
+                                    }, (_, jobData) => jobData with { JobSettings = jobSettings });
+
+                                    var resp = new MonitorJobResp(jobName);
+                                    MessagePackSerializer.Serialize<IMonitorResponse>(writeBuffer, resp, cancellationToken: cts.Token);
+                                    await pipe.WriteAsync(writeBuffer.WrittenMemory, cts.Token);
+                                    break;
+                                }
+                            case GetJobNamesReq ev:
+                                {
+                                    if (ev.SubscribeToEvents)
+                                    {
+                                        clients.AddOrUpdate(AnyJobHandle, _ => [pipe], (_, streams) => [.. streams, pipe]);
                                     }
 
-                                    var resp = new MonitorJobResp(monitorJob.JobName);
+                                    var resp = new GetJobNamesResp([.. jobNameWin32JobMap.Keys]);
                                     MessagePackSerializer.Serialize<IMonitorResponse>(writeBuffer, resp, cancellationToken: cts.Token);
                                     await pipe.WriteAsync(writeBuffer.WrittenMemory, cts.Token);
                                     break;
@@ -185,10 +207,8 @@ static partial class Program
             }
             finally
             {
-                if (disposePipeOnExit)
-                {
-                    pipe.Dispose();
-                }
+                // the IOCP listener thread will remove this named pipe from the clients
+                pipe.Dispose();
             }
         }
 
@@ -199,7 +219,7 @@ static partial class Program
 
             while (!cts.IsCancellationRequested)
             {
-                if (monitoredJobs.Count > 0)
+                if (!monitoredJobs.IsEmpty)
                 {
                     lastTimeWithJobs = DateTime.UtcNow;
                 }
@@ -225,10 +245,9 @@ static partial class Program
                         break;
                     }
 
-                    if (!monitoredJobs.TryGetJob(jobHandle, out var jobData))
+                    if (!monitoredJobs.TryGetValue(jobHandle, out var jobData))
                     {
                         // this might be expected if we already processed ExitProcess events for all the processes in the job
-                        Debug.Assert(notifier.GetNotificationStreams(jobHandle) is []);
                         continue;
                     }
 
@@ -249,253 +268,83 @@ static partial class Program
 
                     Logger.TraceInformation($"[process monitor] {jobEvent}");
 
-                    uint processCountInJob = jobEvent switch
+                    switch (jobEvent)
                     {
-                        NewProcessEvent { ProcessId: var processId } => monitoredJobs.ProcessAssignedToJob(processId, jobHandle),
-                        ExitProcessEvent { ProcessId: var processId } => monitoredJobs.ProcessExited(processId),
-                        NoProcessesInJobEvent => monitoredJobs.NoProcessInJob(jobHandle),
-                        _ => 1 // does not matter until it's greater than 0
-                    };
+                        case NewProcessEvent { ProcessId: var processId }:
+                            processIdJobHandleMap[processId] = jobHandle;
+                            break;
+                        case ExitProcessEvent { ProcessId: var processId }:
+                            processIdJobHandleMap.TryRemove(processId, out _);
+                            break;
+                        default:
+                            break;
+                    }
 
-                    if (notifier.GetNotificationStreams(jobHandle) is var jobNotificationStreams && jobNotificationStreams.Length > 0)
+                    foreach (var h in (Span<nuint>)[AnyJobHandle, jobHandle])
                     {
-                        MessagePackSerializer.Serialize(buffer, jobEvent, cancellationToken: cts.Token);
-                        if (jobEvent is not NoProcessesInJobEvent && processCountInJob == 0)
+                        SendJobEventAndValidateStreams(h, jobEvent, buffer);
+                    }
+
+                    if (jobEvent is NoProcessesInJobEvent)
+                    {
+                        // remove job which has no processes
+                        if (monitoredJobs.TryRemove(jobHandle, out _))
                         {
-                            // if there are no more processes in the job, we will also send NoProcessInJobEvent event
-                            Logger.TraceInformation($"[process monitor] no processes in a job '{jobName}'");
-                            MessagePackSerializer.Serialize(buffer, (IMonitorResponse)new NoProcessesInJobEvent(jobName), cancellationToken: cts.Token);
+                            jobNameWin32JobMap.TryRemove(jobData.Job.Name, out _);
+                            jobData.Job.Dispose();
                         }
-
-                        var sendTasks = jobNotificationStreams.Select(stream =>
-                            stream.SafePipeHandle.IsClosed ? Task.FromException(new IOException("pipe is closed")) :
-                                stream.WriteAsync(buffer.WrittenMemory, cts.Token).AsTask()).ToArray();
-
-                        int completedTasksCount = 0;
-                        while (completedTasksCount < sendTasks.Length)
-                        {
-                            var taskIndex = Task.WaitAny(sendTasks, ct);
-                            if (sendTasks[taskIndex].IsFaulted || processCountInJob == 0)
-                            {
-                                if (sendTasks[taskIndex].IsFaulted)
-                                {
-                                    Logger.TraceEvent(TraceEventType.Warning, 0,
-                                        $"[process monitor] failed to send data to the pipe: {sendTasks[taskIndex].Exception}");
-                                }
-
-                                var stream = jobNotificationStreams[taskIndex];
-                                notifier.RemoveNotificationStream(jobHandle, stream);
-                                stream.Dispose();
-                            }
-                            completedTasksCount++;
-                        }
-                        buffer.ResetWrittenCount();
                     }
                 }
             }
         }
-    }
 
-    private sealed class Notifier : IDisposable
-    {
-        readonly Lock lck = new();
-        readonly Dictionary<nuint, NamedPipeServerStream[]> notificationStreams = [];
-
-        public void AddNotificationStream(nuint jobHandle, NamedPipeServerStream stream)
+        void SendJobEventAndValidateStreams(nuint jobHandle, IMonitorResponse jobEvent, ArrayBufferWriter<byte> buffer)
         {
-            lock (lck)
+            if (clients.TryGetValue(jobHandle, out var streams) && streams.Length > 0)
             {
-                if (!notificationStreams.TryGetValue(jobHandle, out var streams))
-                {
-                    notificationStreams.Add(jobHandle, [stream]);
-                }
-                else
-                {
-                    notificationStreams[jobHandle] = [.. streams, stream];
-                }
-            }
-        }
+                List<NamedPipeServerStream> validStreams = new(streams.Length);
+                MessagePackSerializer.Serialize(buffer, jobEvent, cancellationToken: cts.Token);
 
-        public void RemoveNotificationStream(nuint jobHandle, NamedPipeServerStream stream)
-        {
-            lock (lck)
-            {
-                if (notificationStreams.TryGetValue(jobHandle, out var streams))
+                // some tasks will throw an exception when client disconnected
+                var sendTasks = streams.Select(stream =>
                 {
-                    var newStreams = streams.Where(s => s != stream).ToArray();
-                    if (newStreams.Length > 0)
+                    try
                     {
+                        return (stream, stream.WriteAsync(buffer.WrittenMemory, cts.Token).AsTask());
+                    }
+                    catch (Exception ex)
+                    {
+                        return (stream, Task.FromException(ex));
+                    }
+                }).ToList();
 
-                        notificationStreams[jobHandle] = newStreams;
+                while (sendTasks.Count > 0)
+                {
+                    var taskIndex = Task.WaitAny([.. sendTasks.Select(st => st.Item2)], ct);
+                    var (stream, task) = sendTasks[taskIndex];
+
+                    if (task.IsFaulted)
+                    {
+                        Logger.TraceEvent(TraceEventType.Information, 0,
+                            $"[process monitor] failed to send data to the pipe: {task.Exception}");
+                        stream.Dispose();
                     }
                     else
                     {
-                        notificationStreams.Remove(jobHandle);
+                        validStreams.Add(stream);
                     }
+                    sendTasks.RemoveAt(taskIndex);
                 }
-            }
-        }
 
-        public NamedPipeServerStream[] GetNotificationStreams(nuint jobHandle)
-        {
-            lock (lck)
-            {
-                return notificationStreams.TryGetValue(jobHandle, out var streams) ? streams : [];
-            }
-        }
+                buffer.ResetWrittenCount();
 
-        public void Dispose()
-        {
-            lock (lck)
-            {
-                foreach (var s in notificationStreams.Values.SelectMany(s => s))
+                if (validStreams.Count != streams.Length)
                 {
-                    try { s.Dispose(); } catch { }
+                    clients[jobHandle] = [.. validStreams];
                 }
-                notificationStreams.Clear();
             }
         }
     }
 
-    sealed class MonitoredJobs : IDisposable
-    {
-        readonly Lock lck = new();
-        readonly Dictionary<nuint, MonitoredJobData> monitoredJobs = [];
-        readonly Dictionary<string, nuint> monitoredJobNames = [];
-        readonly Dictionary<uint, nuint> processJobMap = [];
-
-        public int AddOrUpdateJob(MonitoredJobData jobData)
-        {
-            lock (lck)
-            {
-                var job = jobData.Job;
-                if (monitoredJobNames.TryGetValue(job.Name, out var jobHandle))
-                {
-                    Debug.Assert(job.NativeHandle == jobHandle);
-                    Debug.Assert(monitoredJobs.ContainsKey(jobHandle));
-                    monitoredJobs[jobHandle] = jobData;
-                }
-                else
-                {
-                    Debug.Assert(!monitoredJobs.ContainsKey(jobHandle));
-                    monitoredJobs.Add(job.NativeHandle, jobData);
-                    monitoredJobNames.Add(job.Name, job.NativeHandle);
-                }
-                return monitoredJobs.Count;
-            }
-        }
-
-        public uint NoProcessInJob(nuint jobHandle)
-        {
-            lock (lck)
-            {
-                if (monitoredJobs.Remove(jobHandle, out var jobData))
-                {
-                    monitoredJobNames.Remove(jobData.Job.Name);
-
-                    jobData.Job.Dispose();
-
-                    if (jobData.ProcessCount > 0)
-                    {
-                        // should be very rare - only when we missed ProcessExit notifications
-                        Logger.TraceEvent(TraceEventType.Warning, 0, $"[process monitor] removed job contained assigned processes");
-                        foreach (var pid in processJobMap.Where(kv => kv.Value == jobHandle).Select(kv => kv.Key))
-                        {
-                            processJobMap.Remove(pid);
-                        }
-                    }
-                }
-                return 0;
-            }
-        }
-
-        public uint ProcessAssignedToJob(uint processId, nuint jobHandle)
-        {
-            lock (lck)
-            {
-                processJobMap.Add(processId, jobHandle);
-
-                Debug.Assert(monitoredJobs.ContainsKey(jobHandle));
-                var jobData = monitoredJobs[jobHandle];
-                var newProcessCount = jobData.ProcessCount + 1;
-                monitoredJobs[jobHandle] = jobData with { ProcessCount = newProcessCount };
-                return newProcessCount;
-            }
-        }
-
-        public uint ProcessExited(uint processId)
-        {
-            lock (lck)
-            {
-                if (processJobMap.Remove(processId, out var jobHandle))
-                {
-                    Debug.Assert(monitoredJobs.ContainsKey(jobHandle));
-
-                    if (monitoredJobs[jobHandle] is var jobData && jobData.ProcessCount <= 1)
-                    {
-                        monitoredJobs[jobHandle] = jobData with { ProcessCount = 0 };
-                        return NoProcessInJob(jobHandle);
-                    }
-
-                    var newProcessCount = jobData.ProcessCount - 1;
-                    monitoredJobs[jobHandle] = jobData with { ProcessCount = newProcessCount };
-                    return newProcessCount;
-                }
-                return 0;
-            }
-        }
-
-        public int Count
-        {
-            get
-            {
-                lock (lck) { return monitoredJobs.Count; }
-            }
-        }
-
-        public bool TryGetJob(nuint jobHandle, [NotNullWhen(true)] out MonitoredJobData? job)
-        {
-            lock (lck)
-            {
-                return monitoredJobs.TryGetValue(jobHandle, out job);
-            }
-        }
-
-        public bool TryGetJob(string jobName, [NotNullWhen(true)] out MonitoredJobData? job)
-        {
-            lock (lck)
-            {
-                job = null;
-                return monitoredJobNames.TryGetValue(jobName, out var jobHandle) &&
-                    monitoredJobs.TryGetValue(jobHandle, out job);
-            }
-        }
-
-        public bool TryGetJobAssignedToProcess(uint processId, [NotNullWhen(true)] out MonitoredJobData? job)
-        {
-            lock (lck)
-            {
-                if (processJobMap.TryGetValue(processId, out var jobHandle))
-                {
-                    return monitoredJobs.TryGetValue(jobHandle, out job);
-                }
-                job = null;
-                return false;
-            }
-        }
-
-        public void Dispose()
-        {
-            lock (lck)
-            {
-                foreach (var jobData in monitoredJobs.Values)
-                {
-                    jobData.Job.Dispose();
-                }
-                monitoredJobs.Clear();
-            }
-        }
-    }
-
-    sealed record MonitoredJobData(Win32Job Job, JobSettings JobSettings, uint ProcessCount);
+    sealed record MonitoredJobData(Win32Job Job, JobSettings JobSettings);
 }

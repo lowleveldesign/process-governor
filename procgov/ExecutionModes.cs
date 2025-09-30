@@ -20,6 +20,7 @@ record ShowHelpAndExit(string ErrorMessage) : IExecutionMode;
 record ShowSystemInfoAndExit() : IExecutionMode;
 
 record RunAsCmdApp(
+    string? JobName,
     JobSettings JobSettings,
     IJobTarget JobTarget,
     Dictionary<string, string> Environment,
@@ -33,6 +34,7 @@ record RunAsMonitor(TimeSpan MaxMonitorIdleTime, bool NoGui) : IExecutionMode;
 record RunAsService : IExecutionMode;
 
 record SetupProcessGovernance(
+    string? JobName,
     JobSettings JobSettings,
     Dictionary<string, string> Environment,
     List<string> Privileges,

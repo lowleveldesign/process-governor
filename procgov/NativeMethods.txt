@@ -24,6 +24,7 @@ GetExitCodeThread
 GetLogicalProcessorInformationEx
 GetModuleFileNameEx
 GetNamedPipeClientProcessId
+GetNamedPipeServerProcessId
 GetPerformanceInfo
 GetQueuedCompletionStatus
 InitializeProcThreadAttributeList

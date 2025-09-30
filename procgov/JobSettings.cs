@@ -119,6 +119,34 @@ public sealed partial class JobSettings(ulong maxProcessMemory = 0, ulong maxJob
         buffer.Append($"PriorityClass: {PriorityClass} }}");
         return buffer.ToString();
     }
+
+    public JobSettings Merge(JobSettings other)
+    {
+        return new JobSettings(
+            maxProcessMemory: this.MaxProcessMemory > 0 ? this.MaxProcessMemory : other.MaxProcessMemory,
+            maxJobMemory: this.MaxJobMemory > 0 ? this.MaxJobMemory : other.MaxJobMemory,
+            maxWorkingSetSize: this.MaxWorkingSetSize > 0 ? this.MaxWorkingSetSize : other.MaxWorkingSetSize,
+            minWorkingSetSize: this.MinWorkingSetSize > 0 ? this.MinWorkingSetSize : other.MinWorkingSetSize,
+            cpuAffinity: this.CpuAffinity is not null ? this.CpuAffinity : other.CpuAffinity,
+            cpuMaxRate: this.CpuMaxRate > 0 ? this.CpuMaxRate : other.CpuMaxRate,
+            maxBandwidth: this.MaxBandwidth > 0 ? this.MaxBandwidth : other.MaxBandwidth,
+            processUserTimeLimitInMilliseconds: this.ProcessUserTimeLimitInMilliseconds > 0 ?
+                this.ProcessUserTimeLimitInMilliseconds : other.ProcessUserTimeLimitInMilliseconds,
+            jobUserTimeLimitInMilliseconds: this.JobUserTimeLimitInMilliseconds > 0 ?
+                this.JobUserTimeLimitInMilliseconds : other.JobUserTimeLimitInMilliseconds,
+            // clock time limit is governed by the running cmd client, so we always overwrite its value
+            clockTimeLimitInMilliseconds: other.ClockTimeLimitInMilliseconds,
+            propagateOnChildProcesses: this.PropagateOnChildProcesses || other.PropagateOnChildProcesses,
+            activeProcessLimit: this.ActiveProcessLimit > 0 ? this.ActiveProcessLimit : other.ActiveProcessLimit,
+            priorityClass: this.PriorityClass != PriorityClass.Undefined ? this.PriorityClass : other.PriorityClass
+        );
+    }
+
+    public bool IsEmpty() => MaxProcessMemory == 0 && MaxJobMemory == 0
+        && MaxWorkingSetSize == 0 && MinWorkingSetSize == 0 && CpuAffinity is null
+        && CpuMaxRate == 0 && MaxBandwidth == 0 && ProcessUserTimeLimitInMilliseconds == 0
+        && JobUserTimeLimitInMilliseconds == 0 && ClockTimeLimitInMilliseconds == 0 && !propagateOnChildProcesses
+        && ActiveProcessLimit == 0 && PriorityClass == PriorityClass.Undefined;
 }
 
 [MessagePackObject]

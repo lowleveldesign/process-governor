@@ -17,15 +17,11 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="MessagePack" Version="3.0.238-rc.1" />
-        <PackageReference Include="MessagePackAnalyzer" Version="3.0.238-rc.1">
+        <PackageReference Include="MessagePack" Version="3.1.4" />
+        <PackageReference Include="Microsoft.Windows.CsWin32" Version="0.3.183">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
-        <PackageReference Include="Microsoft.Windows.CsWin32" Version="0.3.106">
-            <PrivateAssets>all</PrivateAssets>
-            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-        </PackageReference>
-        <PackageReference Include="System.ServiceProcess.ServiceController" Version="9.0.0" />
+        <PackageReference Include="System.ServiceProcess.ServiceController" Version="9.0.8" />
     </ItemGroup>
 </Project>

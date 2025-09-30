@@ -14,8 +14,8 @@ static class ProcessGovernorTestContext
     {
         Program.Logger.Switch.Level = SourceLevels.Verbose;
         Program.Logger.Listeners.Clear();
-        Program.Logger.Listeners.Add(new DefaultTraceListener());
-        Program.Logger.Listeners.Add(new TestTraceListener());
+        Program.Logger.Listeners.Add(new DefaultTraceListener() { TraceOutputOptions = TraceOptions.DateTime });
+        Program.Logger.Listeners.Add(new TestTraceListener() { TraceOutputOptions = TraceOptions.DateTime });
     }
 
     public static void Initialize() { }
@@ -51,12 +51,17 @@ static class SharedApi
         }
     }
 
-    public static async Task<string> TryGetJobNameFromMonitor(uint processId, CancellationToken ct)
+
+    public static async ValueTask<string> TryGetJobNameFromMonitor(uint processId, CancellationToken ct)
     {
         using var pipe = new NamedPipeClientStream(".", Program.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
-
         await pipe.ConnectAsync(500, ct);
 
+        return await TryGetJobNameFromMonitor(pipe, processId, ct);
+    }
+
+    public static async ValueTask<string> TryGetJobNameFromMonitor(NamedPipeClientStream pipe, uint processId, CancellationToken ct)
+    {
         var buffer = new ArrayBufferWriter<byte>(1024);
 
         MessagePackSerializer.Serialize<IMonitorRequest>(buffer, new GetJobNameReq(processId), cancellationToken: ct);
@@ -79,60 +84,69 @@ static class SharedApi
         else { throw new InvalidOperationException(); }
     }
 
-    public static async Task<JobSettings?> TryGetJobSettingsFromMonitor(uint processId, CancellationToken ct)
+    public static async ValueTask<JobSettings?> TryGetJobSettingsFromMonitor(string jobName, CancellationToken ct)
     {
         using var pipe = new NamedPipeClientStream(".", Program.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
-
         await pipe.ConnectAsync(500, ct);
 
+        return await TryGetJobSettingsFromMonitor(pipe, jobName, ct);
+    }
+
+    public static async ValueTask<JobSettings?> TryGetJobSettingsFromMonitor(NamedPipeClientStream pipe, string jobName, CancellationToken ct)
+    {
         var buffer = new ArrayBufferWriter<byte>(1024);
 
-        MessagePackSerializer.Serialize<IMonitorRequest>(buffer, new GetJobNameReq(processId), cancellationToken: ct);
+        Assert.That(jobName, Is.Not.Null.And.Not.Empty);
+        buffer.ResetWrittenCount();
+
+        MessagePackSerializer.Serialize<IMonitorRequest>(buffer, new GetJobSettingsReq(jobName), cancellationToken: ct);
         await pipe.WriteAsync(buffer.WrittenMemory, ct);
         buffer.ResetWrittenCount();
 
-        int readBytes = await pipe.ReadAsync(buffer.GetMemory(), ct);
+        var readBytes = await pipe.ReadAsync(buffer.GetMemory(), ct);
         Assert.That(readBytes > 0);
         buffer.Advance(readBytes);
+
         if (MessagePackSerializer.Deserialize<IMonitorResponse>(buffer.WrittenMemory,
-            bytesRead: out var deseralizedBytes, cancellationToken: ct) is GetJobNameResp
+            bytesRead: out var deseralizedBytes, cancellationToken: ct) is GetJobSettingsResp
             {
-                JobName: var jobName
+                JobName: var receivedJobName,
+                JobSettings: var receivedJobSettings
             })
         {
             Assert.That(readBytes, Is.EqualTo(deseralizedBytes));
+            Assert.That(receivedJobName, Is.EqualTo("").Or.EqualTo(jobName));
+
+            return receivedJobName != "" ? receivedJobSettings : null;
         }
         else { throw new InvalidOperationException(); }
+    }
+
+    public static Task<(string JobName, JobSettings Settings)?> TryGetJobDataFromMonitor(uint processId, CancellationToken ct) =>
+        TryGetJobDataFromMonitor(Program.PipeName, processId, ct);
+
+    public static async Task<(string JobName, JobSettings Settings)?> TryGetJobDataFromMonitor(string pipeName, uint processId, CancellationToken ct)
+    {
+        using var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+
+        await pipe.ConnectAsync(500, ct);
+
+        return await TryGetJobDataFromMonitor(pipe, processId, ct);
+    }
+
+    public static async Task<(string JobName, JobSettings Settings)?> TryGetJobDataFromMonitor(NamedPipeClientStream pipe, uint processId, CancellationToken ct)
+    {
+        var jobName = await TryGetJobNameFromMonitor(pipe, processId, ct);
 
         Assert.That(jobName, Is.Not.Null);
-
         if (jobName != "")
         {
-            Assert.That(jobName, Is.Not.Null.And.Not.Empty);
-            buffer.ResetWrittenCount();
-
-            MessagePackSerializer.Serialize<IMonitorRequest>(buffer, new GetJobSettingsReq(jobName), cancellationToken: ct);
-            await pipe.WriteAsync(buffer.WrittenMemory, ct);
-            buffer.ResetWrittenCount();
-
-            readBytes = await pipe.ReadAsync(buffer.GetMemory(), ct);
-            Assert.That(readBytes > 0);
-            buffer.Advance(readBytes);
-
-            if (MessagePackSerializer.Deserialize<IMonitorResponse>(buffer.WrittenMemory,
-                bytesRead: out deseralizedBytes, cancellationToken: ct) is GetJobSettingsResp
-                {
-                    JobSettings: var receivedJobSettings
-                })
-            {
-                Assert.That(readBytes, Is.EqualTo(deseralizedBytes));
-
-                return receivedJobSettings;
-            }
-            else { throw new InvalidOperationException(); }
+            return (await TryGetJobSettingsFromMonitor(pipe, jobName, ct) is { } jobSettings) ? (jobName, jobSettings) : null;
         }
-
-        return null;
+        else
+        {
+            return null;
+        }
     }
 
     public static readonly SystemInfo RealSystemInfo = SystemInfoModule.GetSystemInfo();

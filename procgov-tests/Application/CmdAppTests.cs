@@ -23,9 +23,10 @@ public static class CmdAppTests
 
         var procgovExecutablePath = Path.Combine(AppContext.BaseDirectory, "procgov.exe");
 
+        var jobName = Program.GenerateNewJobName();
         var psi = new ProcessStartInfo(procgovExecutablePath)
         {
-            Arguments = $"-c 0x1 \"{executablePath}\"",
+            Arguments = $"--job-name=\"{jobName}\" -c 0x1 \"{executablePath}\"",
             UseShellExecute = false
         };
         using var procgov = Process.Start(psi)!;
@@ -44,10 +45,16 @@ public static class CmdAppTests
         {
 
             // check if the monitor is running
-            var settings = await SharedApi.TryGetJobSettingsFromMonitor((uint)winver.Id, cts.Token);
-
+            var job = await SharedApi.TryGetJobDataFromMonitor((uint)winver.Id, cts.Token);
+            Assert.That(job, Is.Not.Null);
+            
             var defaultGroup = SharedApi.GetDefaultProcessorGroup();
-            Assert.That(settings, Is.EqualTo(new JobSettings(cpuAffinity: [new(defaultGroup.Number, 0x1)])));
+            Assert.Multiple(() =>
+            {
+                var (receivedJobName, receivedJobSettings) = job.Value;
+                Assert.That(receivedJobName, Is.EqualTo(jobName));
+                Assert.That(receivedJobSettings, Is.EqualTo(new JobSettings(cpuAffinity: [new(defaultGroup.Number, 0x1)])));
+            });
 
         }
         finally
@@ -107,10 +114,11 @@ public static class CmdAppTests
         try
         {
             // check if the monitor is running
-            var settings = await SharedApi.TryGetJobSettingsFromMonitor((uint)winver.Id, cts.Token);
+            var job = await SharedApi.TryGetJobDataFromMonitor((uint)winver.Id, cts.Token);
+            Assert.That(job, Is.Not.Null);
 
             var defaultGroup = SharedApi.GetDefaultProcessorGroup();
-            Assert.That(settings, Is.EqualTo(new JobSettings(cpuAffinity: [new(defaultGroup.Number, 0x1)])));
+            Assert.That(job.Value.Settings, Is.EqualTo(new JobSettings(cpuAffinity: [new(defaultGroup.Number, 0x1)])));
 
             // try to update the job settings
             psi = new ProcessStartInfo(procgovExecutablePath)
@@ -124,8 +132,9 @@ public static class CmdAppTests
             }
 
             // check if settings were updated
-            settings = await SharedApi.TryGetJobSettingsFromMonitor((uint)winver.Id, cts.Token);
-            Assert.That(settings, Is.EqualTo(new JobSettings(cpuAffinity: [new(defaultGroup.Number, defaultGroup.AffinityMask & 0x3)])));
+            job = await SharedApi.TryGetJobDataFromMonitor((uint)winver.Id, cts.Token);
+            Assert.That(job, Is.Not.Null);
+            Assert.That(job.Value.Settings, Is.EqualTo(new JobSettings(cpuAffinity: [new(defaultGroup.Number, defaultGroup.AffinityMask & 0x3)])));
 
         }
         finally
@@ -157,8 +166,6 @@ public static class CmdAppTests
 
         try
         {
-            await Task.Delay(1000);
-
             var defaultGroup = SharedApi.GetDefaultProcessorGroup();
 
             TestContext.Out.WriteLine($"winver PID: {winver.Id}");
@@ -166,13 +173,20 @@ public static class CmdAppTests
             using (var procgov = Process.Start(new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "procgov.exe"))
             {
                 Arguments = $"-c 0x1 --nowait -p \"{winver.Id}\"",
-                UseShellExecute = false
+                UseShellExecute = false,
+                RedirectStandardOutput = true
             })!)
             {
+                _ = procgov.StandardOutput.ReadToEndAsync(cts.Token).ContinueWith(t => TestContext.Out.WriteLine(t.Result), cts.Token);
+
                 await procgov.WaitForExitAsync(cts.Token);
 
-                var settings = await SharedApi.TryGetJobSettingsFromMonitor((uint)winver.Id, cts.Token);
-                Assert.That(settings, Is.EqualTo(new JobSettings(cpuAffinity: [new(defaultGroup.Number, 0x1)])));
+                // give the monitor some time to process the job start event
+                await Task.Delay(2000);
+
+                var job = await SharedApi.TryGetJobDataFromMonitor((uint)winver.Id, cts.Token);
+                Assert.That(job, Is.Not.Null);
+                Assert.That(job.Value.Settings, Is.EqualTo(new JobSettings(cpuAffinity: [new(defaultGroup.Number, 0x1)])));
             }
 
             // update the job settings
@@ -185,8 +199,9 @@ public static class CmdAppTests
                 await procgov.WaitForExitAsync(cts.Token);
 
                 // check if the monitor is running
-                var settings = await SharedApi.TryGetJobSettingsFromMonitor((uint)winver.Id, cts.Token);
-                Assert.That(settings, Is.EqualTo(new JobSettings(cpuAffinity: [new(defaultGroup.Number, defaultGroup.AffinityMask & 0x2)])));
+                var job = await SharedApi.TryGetJobDataFromMonitor((uint)winver.Id, cts.Token);
+                Assert.That(job, Is.Not.Null);
+                Assert.That(job.Value.Settings, Is.EqualTo(new JobSettings(cpuAffinity: [new(defaultGroup.Number, defaultGroup.AffinityMask & 0x2)])));
             }
         }
         finally
@@ -229,16 +244,18 @@ public static class CmdAppTests
 
         try
         {
-            _ = procgov.StandardOutput.ReadToEndAsync(cts.Token).ContinueWith(s => TestContext.Out.WriteLine(s.Result), cts.Token);
+            _ = procgov.StandardOutput.ReadToEndAsync(cts.Token).ContinueWith(t => TestContext.Out.WriteLine(t.Result), cts.Token);
 
             // give the monitor some time to process the job start event
             await Task.Delay(2000);
 
             // check if the monitor is running
-            var settings = await SharedApi.TryGetJobSettingsFromMonitor((uint)winver1.Id, cts.Token);
+            var job = await SharedApi.TryGetJobDataFromMonitor((uint)winver1.Id, cts.Token);
+            Assert.That(job, Is.Not.Null);
+            var (_, jobSettings) = job.Value;
 
             var defaultGroup = SharedApi.GetDefaultProcessorGroup();
-            Assert.That(settings, Is.EqualTo(new JobSettings(cpuAffinity: [new(defaultGroup.Number, 0x1)])));
+            Assert.That(jobSettings, Is.EqualTo(new JobSettings(cpuAffinity: [new(defaultGroup.Number, 0x1)])));
 
         }
         finally

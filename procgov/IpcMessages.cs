@@ -7,6 +7,7 @@ namespace ProcessGovernor;
 [Union(0, typeof(MonitorJobReq))]
 [Union(1, typeof(GetJobNameReq))]
 [Union(2, typeof(GetJobSettingsReq))]
+[Union(3, typeof(GetJobNamesReq))]
 public interface IMonitorRequest { }
 
 [MessagePackObject]
@@ -22,6 +23,9 @@ public record GetJobNameReq([property: Key(0)] uint ProcessId) : IMonitorRequest
 [MessagePackObject]
 public record GetJobSettingsReq([property: Key(0)] string JobName) : IMonitorRequest;
 
+[MessagePackObject]
+public record GetJobNamesReq([property: Key(0)] bool SubscribeToEvents) : IMonitorRequest;
+
 /* ***** Responses ***** */
 
 [Union(0, typeof(MonitorJobResp))]
@@ -32,6 +36,8 @@ public record GetJobSettingsReq([property: Key(0)] string JobName) : IMonitorReq
 [Union(5, typeof(JobLimitExceededEvent))]
 [Union(6, typeof(ProcessLimitExceededEvent))]
 [Union(7, typeof(NoProcessesInJobEvent))]
+[Union(8, typeof(GetJobNamesResp))]
+[Union(9, typeof(NewOrUpdatedJobEvent))]
 public interface IMonitorResponse { }
 
 // JobName is an empty string is there is no job associated with the process
@@ -39,10 +45,16 @@ public interface IMonitorResponse { }
 public record GetJobNameResp([property: Key(0)] string JobName) : IMonitorResponse;
 
 [MessagePackObject]
-public record GetJobSettingsResp([property: Key(0)] JobSettings JobSettings) : IMonitorResponse;
+public record GetJobSettingsResp(
+    [property: Key(0)] string JobName, 
+    [property: Key(1)] JobSettings JobSettings
+) : IMonitorResponse;
 
 [MessagePackObject]
 public record MonitorJobResp([property: Key(0)] string JobName) : IMonitorResponse;
+
+[MessagePackObject]
+public record GetJobNamesResp([property: Key(0)] string[] JobNames) : IMonitorResponse;
 
 /* ***** Notifications ***** */
 
@@ -82,5 +94,11 @@ public record ProcessLimitExceededEvent(
 [MessagePackObject]
 public record NoProcessesInJobEvent(
     [property: Key(0)] string JobName
+) : IMonitorResponse;
+
+[MessagePackObject]
+public record NewOrUpdatedJobEvent(
+    [property: Key(0)] string JobName,
+    [property: Key(1)] JobSettings JobSettings
 ) : IMonitorResponse;
 

@@ -32,11 +32,6 @@ static class Win32JobModule
 {
     private static readonly TraceSource logger = Program.Logger;
 
-    public static string GetNewJobName()
-    {
-        return $"procgov-{Guid.NewGuid():D}";
-    }
-
     public static unsafe Win32Job CreateJob(string jobName)
     {
         var securityAttributes = new SECURITY_ATTRIBUTES();

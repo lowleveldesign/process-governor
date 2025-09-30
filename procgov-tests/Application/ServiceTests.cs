@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Diagnostics;
 using System.IO;
+using System.Security.Principal;
 using System.ServiceProcess;
 using System.Threading;
 using System.Threading.Tasks;
@@ -9,6 +10,10 @@ namespace ProcessGovernor.Tests.Application;
 
 public static class ServiceTests
 {
+    // Tests are not using NativeAOT so copying procgov.exe is not enough to install the service. We will
+    // instead use the BaseDirectory and this way skip copying.
+    static readonly string ServicePath = Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory);
+
     [Test]
     public static async Task ServiceSetupAndRemoval()
     {
@@ -29,7 +34,7 @@ public static class ServiceTests
             {
                 var psi = new ProcessStartInfo(procgovExecutablePath)
                 {
-                    Arguments = $"--install -c 0x1 --service-path \"{Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory)}\" {monitoredExecutablePath}",
+                    Arguments = $"--install -c 0x1 --service-path \"{ServicePath}\" {monitoredExecutablePath}",
                     UseShellExecute = false,
                     RedirectStandardOutput = true
                 };
@@ -47,7 +52,7 @@ public static class ServiceTests
                 // let's remove the first executable - the service should keep running
                 var psi = new ProcessStartInfo(procgovExecutablePath)
                 {
-                    Arguments = $"--uninstall --service-path \"{Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory)}\" {monitoredExecutablePaths[0]}",
+                    Arguments = $"--uninstall --service-path \"{ServicePath}\" {monitoredExecutablePaths[0]}",
                     UseShellExecute = false,
                     RedirectStandardOutput = true
                 };
@@ -64,7 +69,7 @@ public static class ServiceTests
                 // remove the second executable - the service should be uninstalled
                 var psi = new ProcessStartInfo(procgovExecutablePath)
                 {
-                    Arguments = $"--uninstall --service-path \"{Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory)}\" {monitoredExecutablePaths[1]}",
+                    Arguments = $"--uninstall --service-path \"{ServicePath}\" {monitoredExecutablePaths[1]}",
                     UseShellExecute = false,
                     RedirectStandardOutput = true
                 };
@@ -81,8 +86,7 @@ public static class ServiceTests
         {
             if (WindowsServiceModule.IsServiceInstalled(Program.ServiceName))
             {
-                await Process.Start(procgovExecutablePath, $"--uninstall-all --service-path \"{Path.TrimEndingDirectorySeparator(
-                        AppContext.BaseDirectory)}\"").WaitForExitAsync();
+                await Process.Start(procgovExecutablePath, $"--uninstall-all --service-path \"{ServicePath}\"").WaitForExitAsync();
             }
         }
     }
@@ -105,9 +109,10 @@ public static class ServiceTests
 
         try
         {
+            var jobName = Program.GenerateNewJobName();
             var psi = new ProcessStartInfo(procgovExecutablePath)
             {
-                Arguments = $"--install -c 0x1 --service-path \"{Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory)}\" {monitoredExecutablePath}",
+                Arguments = $"--install --job-name=\"{jobName}\" -c 0x1 --service-path \"{ServicePath}\" {monitoredExecutablePath}",
                 UseShellExecute = false,
                 RedirectStandardOutput = true
             };
@@ -127,8 +132,18 @@ public static class ServiceTests
             try
             {
                 var defaultGroup = SharedApi.GetDefaultProcessorGroup();
-                Assert.That(await SharedApi.TryGetJobSettingsFromMonitor((uint)monitoredProcess.Id, cts.Token),
-                    Is.EqualTo(new JobSettings(cpuAffinity: [new(defaultGroup.Number, 0x1)])));
+                // the pipe name will be the one from the system service
+                var localSystemIdentifier = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+                var pipeName = $"procgov-{localSystemIdentifier.Value}_elevated";
+                var job = await SharedApi.TryGetJobDataFromMonitor(pipeName, (uint)monitoredProcess.Id, cts.Token);
+                Assert.That(job, Is.Not.Null);
+
+                Assert.Multiple(() =>
+                {
+                    var (receivedJobName, receivedJobSettings) = job.Value;
+                    Assert.That(receivedJobName, Is.EqualTo(jobName));
+                    Assert.That(receivedJobSettings, Is.EqualTo(new JobSettings(cpuAffinity: [new(defaultGroup.Number, 0x1)])));
+                });
             }
             finally
             {
@@ -142,7 +157,7 @@ public static class ServiceTests
         finally
         {
             using var _ = Process.Start(procgovExecutablePath,
-                $"--uninstall --service-path \"{Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory)}\" {monitoredExecutablePath}");
+                $"--uninstall --service-path \"{ServicePath}\" {monitoredExecutablePath}");
         }
 
         await Task.Delay(2000, cts.Token);

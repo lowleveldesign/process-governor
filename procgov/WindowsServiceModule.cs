@@ -13,7 +13,7 @@ static class WindowsServiceModule
     {
         unsafe
         {
-            if (PInvoke.OpenSCManager((PCWSTR)null, null, PInvoke.SC_MANAGER_CONNECT) is var scmHandle && scmHandle.Value == 0)
+            if (PInvoke.OpenSCManager((PCWSTR)null, null, PInvoke.SC_MANAGER_CONNECT) is var scmHandle && scmHandle.IsNull)
             {
                 throw new Win32Exception(Marshal.GetLastWin32Error());
             }
@@ -23,7 +23,7 @@ static class WindowsServiceModule
                 var namePtr = Marshal.StringToHGlobalUni(name);
                 try
                 {
-                    if (PInvoke.OpenService(scmHandle, (char*)namePtr, PInvoke.SERVICE_QUERY_STATUS) is var svcHandle && svcHandle.Value == 0)
+                    if (PInvoke.OpenService(scmHandle, (char*)namePtr, PInvoke.SERVICE_QUERY_STATUS) is var svcHandle && svcHandle.IsNull)
                     {
                         if (Marshal.GetLastWin32Error() is var err && err == (int)WIN32_ERROR.ERROR_SERVICE_DOES_NOT_EXIST)
                         {
@@ -52,7 +52,7 @@ static class WindowsServiceModule
     {
         unsafe
         {
-            if (PInvoke.OpenSCManager((PCWSTR)null, null, PInvoke.SC_MANAGER_CREATE_SERVICE) is var scmHandle && scmHandle.Value == 0)
+            if (PInvoke.OpenSCManager((PCWSTR)null, null, PInvoke.SC_MANAGER_CREATE_SERVICE) is var scmHandle && scmHandle.IsNull)
             {
                 throw new Win32Exception(Marshal.GetLastWin32Error());
             }
@@ -72,7 +72,7 @@ static class WindowsServiceModule
                 if (PInvoke.CreateService(scmHandle, (char*)namePtr, (char*)displayNamePtr, PInvoke.SERVICE_ALL_ACCESS,
                     ENUM_SERVICE_TYPE.SERVICE_WIN32_OWN_PROCESS, SERVICE_START_TYPE.SERVICE_DEMAND_START, SERVICE_ERROR.SERVICE_ERROR_NORMAL,
                     (char*)binaryPathPtr, (char*)null, null, (char*)null, (char*)svcAccountNamePtr, (char*)svcAccountPasswordPtr) is var svcHandle
-                    && svcHandle.Value == 0)
+                    && svcHandle.IsNull)
                 {
                     throw new Win32Exception(Marshal.GetLastWin32Error());
                 }
@@ -95,7 +95,7 @@ static class WindowsServiceModule
     {
         unsafe
         {
-            if (PInvoke.OpenSCManager((PCWSTR)null, null, PInvoke.SC_MANAGER_CONNECT) is var scmHandle && scmHandle.Value == 0)
+            if (PInvoke.OpenSCManager((PCWSTR)null, null, PInvoke.SC_MANAGER_CONNECT) is var scmHandle && scmHandle.IsNull)
             {
                 throw new Win32Exception(Marshal.GetLastWin32Error());
             }
@@ -104,7 +104,7 @@ static class WindowsServiceModule
             try
             {
                 namePtr = Marshal.StringToHGlobalUni(name);
-                if (PInvoke.OpenService(scmHandle, (char*)namePtr, (uint)FILE_ACCESS_RIGHTS.DELETE) is var svcHandle && svcHandle.Value == 0)
+                if (PInvoke.OpenService(scmHandle, (char*)namePtr, (uint)FILE_ACCESS_RIGHTS.DELETE) is var svcHandle && svcHandle.IsNull)
                 {
                     throw new Win32Exception(Marshal.GetLastWin32Error());
                 }

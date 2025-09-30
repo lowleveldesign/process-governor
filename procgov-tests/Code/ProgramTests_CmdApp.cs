@@ -12,7 +12,6 @@ using Windows.Win32.Foundation;
 
 namespace ProcessGovernor.Tests.Code;
 
-[TestFixture]
 public static partial class ProgramTests
 {
 
@@ -21,15 +20,24 @@ public static partial class ProgramTests
     {
         using var cts = new CancellationTokenSource(10000);
 
-        using var pipe = await StartMonitor(cts.Token);
-
-        var exception = Assert.CatchAsync<Win32Exception>(async () =>
+        var (pipe, monitorTask) = await H.StartMonitor(cts.Token);
+        try
         {
-            await Program.Execute(new RunAsCmdApp(new JobSettings(), new LaunchProcess(
-                ["____wrong-executable.exe"], false), [], [], LaunchConfig.Quiet, StartBehavior.None, ExitBehavior.WaitForJobCompletion),
-                CancellationToken.None);
-        });
-        Assert.That(exception?.NativeErrorCode, Is.EqualTo(2));
+            var exception = Assert.CatchAsync<Win32Exception>(async () =>
+            {
+                await Program.Execute(new RunAsCmdApp(null, new JobSettings(), new LaunchProcess(
+                    ["____wrong-executable.exe"], false), [], [], LaunchConfig.Quiet, StartBehavior.None, ExitBehavior.WaitForJobCompletion),
+                    CancellationToken.None);
+            });
+            Assert.That(exception?.NativeErrorCode, Is.EqualTo(2));
+
+            cts.Cancel();
+            await monitorTask;
+        }
+        finally
+        {
+            pipe.Dispose();
+        }
     }
 
     [Test]
@@ -37,11 +45,19 @@ public static partial class ProgramTests
     {
         using var cts = new CancellationTokenSource(10000);
 
-        using var pipe = await StartMonitor(cts.Token);
-
-        var exitCode = await Program.Execute(new RunAsCmdApp(new JobSettings(), new LaunchProcess(
-            ["cmd.exe", "/c", "exit 5"], false), [], [], LaunchConfig.Quiet, StartBehavior.None, ExitBehavior.WaitForJobCompletion), cts.Token);
-        Assert.That(exitCode, Is.EqualTo(5));
+        var (pipe, monitorTask) = await H.StartMonitor(cts.Token);
+        try
+        {
+            var exitCode = await Program.Execute(new RunAsCmdApp(null, new JobSettings(), new LaunchProcess(
+                ["cmd.exe", "/c", "exit 5"], false), [], [], LaunchConfig.Quiet, StartBehavior.None, ExitBehavior.WaitForJobCompletion), cts.Token);
+            Assert.That(exitCode, Is.EqualTo(5));
+            cts.Cancel();
+            await monitorTask;
+        }
+        finally
+        {
+            pipe.Dispose();
+        }
     }
 
     [Test]
@@ -52,9 +68,8 @@ public static partial class ProgramTests
         var (cmd1, cmd1MainThreadHandle) = ProcessModule.CreateSuspendedProcess(["cmd.exe", "/c", "exit 5"], false, []);
         var (cmd2, cmd2MainThreadHandle) = ProcessModule.CreateSuspendedProcess(["cmd.exe", "/c", "exit 6"], false, []);
 
-        var runTask = Task.Run(() => Program.Execute(new RunAsCmdApp(new JobSettings(), new AttachToProcess(
-            [cmd1.Id, cmd2.Id]), [], [], LaunchConfig.Quiet | LaunchConfig.NoMonitor, StartBehavior.None, ExitBehavior.WaitForJobCompletion),
-            cts.Token));
+        var runTask = Task.Run(() => Program.Execute(new RunAsCmdApp(null, new JobSettings(), new AttachToProcess([cmd1.Id, cmd2.Id]), [], [],
+                LaunchConfig.Quiet | LaunchConfig.NoMonitor, StartBehavior.None, ExitBehavior.WaitForJobCompletion), cts.Token));
 
         // give time to start for the job
         await Task.Delay(1000);
@@ -85,48 +100,107 @@ public static partial class ProgramTests
         using var cts = new CancellationTokenSource(10000);
 
         var (cmd, cmdMainThreadHandle) = ProcessModule.CreateSuspendedProcess(["cmd.exe", "/c", "pause 4"], false, []);
+        var (pipe, monitorTask) = await H.StartMonitor(cts.Token);
         try
         {
             PInvoke.ResumeThread(cmdMainThreadHandle);
             cmdMainThreadHandle.Dispose();
 
-            // start the monitor so the run command won't hang
-            var monitorTask = Task.Run(() => Program.Execute(new RunAsMonitor(Program.DefaultMaxMonitorIdleTime, false), cts.Token));
-            using (var pipe = new NamedPipeClientStream(".", Program.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous))
-            {
-                while (!pipe.IsConnected && !cts.IsCancellationRequested)
-                {
-                    try { await pipe.ConnectAsync(cts.Token); } catch (TimeoutException) { }
-                }
-            }
-
+            var jobName = Program.GenerateNewJobName();
             JobSettings jobSettings = new(maxProcessMemory: 1024 * 1024 * 1024);
 
-            await Program.Execute(new RunAsCmdApp(jobSettings, new AttachToProcess([cmd.Id]),
+            await Program.Execute(new RunAsCmdApp(jobName, jobSettings, new AttachToProcess([cmd.Id]),
                 [], [], LaunchConfig.Quiet, StartBehavior.None, ExitBehavior.DontWaitForJobCompletion), cts.Token);
 
             // let's give the IOCP some time to arrive
             await Task.Delay(500);
 
-            Assert.That(await SharedApi.TryGetJobSettingsFromMonitor(cmd.Id, cts.Token), Is.EqualTo(jobSettings));
+            var job = await SharedApi.TryGetJobDataFromMonitor(cmd.Id, cts.Token);
+            Assert.That(job, Is.Not.Null);
+            Assert.Multiple(() =>
+            {
+                var (receivedJobName, receivedJobSettings) = job.Value;
+                Assert.That(receivedJobName, Is.EqualTo(jobName));
+                Assert.That(receivedJobSettings, Is.EqualTo(jobSettings));
+            });
 
             jobSettings = new(maxProcessMemory: jobSettings.MaxProcessMemory, cpuMaxRate: 50);
-            await Program.Execute(new RunAsCmdApp(jobSettings, new AttachToProcess([cmd.Id]),
+            await Program.Execute(new RunAsCmdApp(jobName, jobSettings, new AttachToProcess([cmd.Id]),
                 [], [], LaunchConfig.Quiet, StartBehavior.None, ExitBehavior.DontWaitForJobCompletion), cts.Token);
 
-            Assert.That(await SharedApi.TryGetJobSettingsFromMonitor(cmd.Id, cts.Token), Is.EqualTo(jobSettings));
+            job = await SharedApi.TryGetJobDataFromMonitor(cmd.Id, cts.Token);
+
+            Assert.That(job, Is.Not.Null);
+            Assert.Multiple(() =>
+            {
+                var (receivedJobName, receivedJobSettings) = job.Value;
+                Assert.That(receivedJobName, Is.EqualTo(jobName));
+                Assert.That(receivedJobSettings, Is.EqualTo(jobSettings));
+            });
 
             cts.Cancel();
+
+            await monitorTask;
         }
         finally
         {
             ProcessModule.TerminateProcess(cmd.Handle, 0);
             cmd.Dispose();
+            pipe.Dispose();
         }
     }
 
-    static void UpdateProcessEnvironmentVariables(Process proc)
+
+    [Test]
+    public static async Task CmdAppLaunchProcessAndUpdateJob()
     {
+        using var cts = new CancellationTokenSource(10000);
+
+        var (pipe, monitorTask) = await H.StartMonitor(cts.Token);
+        try
+        {
+            var jobName = Program.GenerateNewJobName();
+            JobSettings jobSettings = new(maxProcessMemory: 1024 * 1024 * 1024);
+
+            await Program.Execute(new RunAsCmdApp(jobName, jobSettings, new LaunchProcess(["cmd.exe", "/c", "pause 10"], false),
+                [], [], LaunchConfig.Quiet, StartBehavior.None, ExitBehavior.DontWaitForJobCompletion), cts.Token);
+
+            // let's give the IOCP some time to arrive
+            await Task.Delay(500);
+
+            var receivedJobSettings = await SharedApi.TryGetJobSettingsFromMonitor(pipe, jobName, cts.Token);
+            Assert.That(receivedJobSettings, Is.EqualTo(jobSettings));
+
+            // starting new process with the same name should update job settings
+            jobSettings = new(maxProcessMemory: jobSettings.MaxProcessMemory, cpuMaxRate: 50);
+            await Program.Execute(new RunAsCmdApp(jobName, jobSettings, new LaunchProcess(["cmd.exe", "/c", "pause 3"], false),
+                [], [], LaunchConfig.Quiet, StartBehavior.None, ExitBehavior.DontWaitForJobCompletion), cts.Token);
+
+            receivedJobSettings = await SharedApi.TryGetJobSettingsFromMonitor(pipe, jobName, cts.Token);
+            Assert.That(receivedJobSettings, Is.EqualTo(jobSettings));
+
+            cts.Cancel();
+
+            await monitorTask;
+        }
+        finally
+        {
+            pipe.Dispose();
+        }
+    }
+
+    [Test]
+    public static async Task CmdAppUpdateProcessEnvironmentVariables(
+        [Values(
+            Environment.SpecialFolder.System,
+            Environment.SpecialFolder.SystemX86)
+        ]Environment.SpecialFolder systemFolder)
+    {
+        string executablePath = Path.Combine(Environment.GetFolderPath(systemFolder), "winver.exe");
+        using var proc = Process.Start(executablePath);
+
+        await Task.Delay(1000);
+
         try
         {
             Dictionary<string, string> expectedEnvVars = new()
@@ -156,53 +230,37 @@ public static partial class ProgramTests
     }
 
     [Test]
-    public static async Task CmdAppUpdateProcessEnvironmentVariablesSameBittness()
-    {
-        using var proc = Process.Start("winver.exe");
-
-        await Task.Delay(1000);
-
-        UpdateProcessEnvironmentVariables(proc);
-    }
-
-    [Test]
-    public static async Task CmdAppUpdateProcessEnvironmentVariablesWow64()
-    {
-        if (!Environment.Is64BitProcess)
-        {
-            Assert.Ignore("This test makes sense for 64-bit processes only.");
-        }
-
-        using var proc = Process.Start(Path.Combine(Environment.GetFolderPath(
-            Environment.SpecialFolder.SystemX86), "winver.exe"));
-
-        await Task.Delay(1000);
-
-        UpdateProcessEnvironmentVariables(proc);
-    }
-
-    [Test]
     public static async Task CmdAppLaunchProcessFreezeAndThaw()
     {
         using var cts = new CancellationTokenSource(10000);
 
-        using var pipe = await StartMonitor(cts.Token);
-
-        var startTime = DateTime.Now;
-        var exitCode = await Program.Execute(new RunAsCmdApp(new JobSettings(), new LaunchProcess(
-            ["cmd.exe", "/c", "exit 5"], false), [], [], LaunchConfig.Quiet,
-            StartBehavior.Freeze, ExitBehavior.DontWaitForJobCompletion), cts.Token);
-        Assert.That(exitCode, Is.EqualTo(NTSTATUS.STILL_ACTIVE.Value));
-
-        var cmd = Process.GetProcessesByName("cmd").FirstOrDefault(p => p.StartTime > startTime);
-        while (!cts.IsCancellationRequested && cmd == null)
+        var (pipe, monitorTask) = await H.StartMonitor(cts.Token);
+        try
         {
-            cmd = Process.GetProcessesByName("cmd").FirstOrDefault(p => p.StartTime > startTime);
-        }
-        Debug.Assert(cmd is not null);
+            var startTime = DateTime.Now;
+            var jobName = Program.GenerateNewJobName();
+            var exitCode = await Program.Execute(new RunAsCmdApp(jobName, new JobSettings(), new LaunchProcess(
+                ["cmd.exe", "/c", "exit 5"], false), [], [], LaunchConfig.Quiet,
+                StartBehavior.Freeze, ExitBehavior.DontWaitForJobCompletion), cts.Token);
+            Assert.That(exitCode, Is.EqualTo(NTSTATUS.STILL_ACTIVE.Value));
 
-        exitCode = await Program.Execute(new RunAsCmdApp(new JobSettings(), new AttachToProcess([(uint)cmd.Id]),
-            [], [], LaunchConfig.Quiet, StartBehavior.Thaw, ExitBehavior.WaitForJobCompletion), cts.Token);
-        Assert.That(exitCode, Is.EqualTo(0));
+            var cmd = Process.GetProcessesByName("cmd").FirstOrDefault(p => p.StartTime > startTime);
+            while (!cts.IsCancellationRequested && cmd == null)
+            {
+                cmd = Process.GetProcessesByName("cmd").FirstOrDefault(p => p.StartTime > startTime);
+            }
+            Debug.Assert(cmd is not null);
+
+            exitCode = await Program.Execute(new RunAsCmdApp(jobName, new JobSettings(), new AttachToProcess([(uint)cmd.Id]),
+                [], [], LaunchConfig.Quiet, StartBehavior.Thaw, ExitBehavior.WaitForJobCompletion), cts.Token);
+            Assert.That(exitCode, Is.EqualTo(0));
+
+            cts.Cancel();
+            await monitorTask;
+        }
+        finally
+        {
+            pipe.Dispose();
+        }
     }
 }

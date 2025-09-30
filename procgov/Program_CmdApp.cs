@@ -43,9 +43,8 @@ static partial class Program
 
         if (app.JobTarget is LaunchProcess l)
         {
-            using var job = Win32JobModule.CreateJob(Win32JobModule.GetNewJobName());
+            using var job = await OpenOrCreateJob(app.JobName);
 
-            Win32JobModule.SetLimits(job, app.JobSettings);
             // in launch mode, we always freeze to setup the privileges before the process starts execution
             Win32JobModule.SetJobFreezeStatus(job, true);
 
@@ -54,7 +53,7 @@ static partial class Program
                 await StartOrUpdateMonitoring(job);
             }
 
-            var targetProcess  = ProcessModule.CreateProcessWithJobAssigned(
+            var targetProcess = ProcessModule.CreateProcessWithJobAssigned(
                 l.Procargs, l.NewConsole, app.Environment, job.Handle);
 
             SetupProcessPrivileges(targetProcess);
@@ -157,7 +156,7 @@ static partial class Program
         void SetupProcessPrivileges(Win32Process proc)
         {
             foreach (var (privilegeName, isSuccess) in AccountPrivilegeModule.EnableProcessPrivileges(proc.Handle,
-                app.Privileges.Select(name => (name, Required: false)).ToList()).Where(ap => !ap.IsSuccess))
+                [.. app.Privileges.Select(name => (name, Required: false))]).Where(ap => !ap.IsSuccess))
             {
                 Logger.TraceEvent(TraceEventType.Error, 0, $"Setting privilege {privilegeName} for process {proc.Id} failed.");
             }
@@ -187,18 +186,13 @@ static partial class Program
 
         async Task<Win32Job> AttachJobToProcesses(Win32Process[] targetProcesses)
         {
-            var jobSettings = app.JobSettings;
-
             Debug.Assert(app.JobTarget is AttachToProcess);
 
             if (noMonitor)
             {
-                // in noMonitor mode, we can't rely on job names as they may not exist, so we simply
+                var job = await OpenOrCreateJob(app.JobName);
+
                 // try to assign a new job to processes
-                var job = Win32JobModule.CreateJob(Win32JobModule.GetNewJobName());
-
-                Win32JobModule.SetLimits(job, jobSettings);
-
                 Array.ForEach(targetProcesses, targetProcess => Win32JobModule.AssignProcess(job, targetProcess.Handle));
 
                 return job;
@@ -208,24 +202,37 @@ static partial class Program
                 var assignedJobNames = await GetProcessJobNames(((AttachToProcess)app.JobTarget).Pids);
                 Debug.Assert(assignedJobNames.Length == targetProcesses.Length);
 
-                var jobName = "";
-                if (Array.FindIndex(assignedJobNames, jobName => jobName != "") is var monitoredProcessIndex && monitoredProcessIndex != -1)
+                var existingJobName = assignedJobNames.Index().Aggregate("", (foundJobName, processJob) =>
                 {
-                    jobName = assignedJobNames[monitoredProcessIndex];
-
-                    // check if all assigned jobs are the same
-                    if (Array.FindIndex(assignedJobNames, n => n != jobName && n != "") is var idx && idx != -1)
+                    if (processJob.Item != "")
                     {
-                        throw new ArgumentException($"processes belong to different Process Governor jobs (found '{jobName}', " +
-                            $"but, for example, {targetProcesses[idx].Id} is assigned to '{assignedJobNames[idx]}')");
+                        if (foundJobName != "" && foundJobName != processJob.Item)
+                        {
+                            throw new ArgumentException($"processes belong to different Process Governor jobs (found '{foundJobName}', " +
+                                $"but {targetProcesses[processJob.Index].Id} is assigned to '{processJob.Item}')");
+                        }
+                        else
+                        {
+                            return processJob.Item;
+                        }
                     }
+                    else
+                    {
+                        return foundJobName;
+                    }
+                });
 
-                    jobSettings = MergeJobSettings(jobSettings, await GetProcessJobSettings(jobName));
-                }
+                var jobName = existingJobName switch
+                {
+                    "" => app.JobName,
+                    _ when app.JobName is null => existingJobName,
+                    _ when app.JobName == existingJobName => existingJobName,
+                    _ => throw new ArgumentException(
+                        $"requested job name is '{app.JobName}' but one of the processes is already assigned to job '{existingJobName}'")
+                };
 
-                var job = jobName != "" ? Win32JobModule.OpenJob(jobName) : Win32JobModule.CreateJob(Win32JobModule.GetNewJobName());
-
-                Win32JobModule.SetLimits(job, jobSettings);
+                var job = await OpenOrCreateJob(jobName);
+                Logger.TraceEvent(TraceEventType.Verbose, 0, $"The job name is '{job.Name}'");
 
                 await StartOrUpdateMonitoring(job);
 
@@ -266,8 +273,20 @@ static partial class Program
                 }
                 return jobNames;
             }
+        }
 
-            async Task<JobSettings> GetProcessJobSettings(string jobName)
+        async ValueTask<Win32Job> OpenOrCreateJob(string? jobNameOrNull)
+        {
+            var (job, jobSettings) = (jobNameOrNull is { } jobName && await GetJobSettings(jobName) is { } js) ?
+                (Win32JobModule.OpenJob(jobName), js.Merge(app.JobSettings)) :
+                (Win32JobModule.CreateJob(jobNameOrNull ?? GenerateNewJobName()), app.JobSettings);
+
+            Win32JobModule.SetLimits(job, jobSettings);
+
+            return job;
+
+
+            async ValueTask<JobSettings?> GetJobSettings(string jobName)
             {
                 buffer.ResetWrittenCount();
                 MessagePackSerializer.Serialize<IMonitorRequest>(buffer, new GetJobSettingsReq(jobName), cancellationToken: ct);
@@ -280,31 +299,10 @@ static partial class Program
                 return MessagePackSerializer.Deserialize<IMonitorResponse>(buffer.WrittenMemory,
                     bytesRead: out var deseralizedBytes, cancellationToken: ct) switch
                 {
+                    GetJobSettingsResp { JobName: "" } => null, // job does not exist
                     GetJobSettingsResp { JobSettings: var jobSettings } => jobSettings,
                     _ => throw new InvalidOperationException("Unexpected monitor response")
                 };
-            }
-
-            static JobSettings MergeJobSettings(JobSettings current, JobSettings other)
-            {
-                return new JobSettings(
-                    maxProcessMemory: current.MaxProcessMemory > 0 ? current.MaxProcessMemory : other.MaxProcessMemory,
-                    maxJobMemory: current.MaxJobMemory > 0 ? current.MaxJobMemory : other.MaxJobMemory,
-                    maxWorkingSetSize: current.MaxWorkingSetSize > 0 ? current.MaxWorkingSetSize : other.MaxWorkingSetSize,
-                    minWorkingSetSize: current.MinWorkingSetSize > 0 ? current.MinWorkingSetSize : other.MinWorkingSetSize,
-                    cpuAffinity: current.CpuAffinity is not null ? current.CpuAffinity : other.CpuAffinity,
-                    cpuMaxRate: current.CpuMaxRate > 0 ? current.CpuMaxRate : other.CpuMaxRate,
-                    maxBandwidth: current.MaxBandwidth > 0 ? current.MaxBandwidth : other.MaxBandwidth,
-                    processUserTimeLimitInMilliseconds: current.ProcessUserTimeLimitInMilliseconds > 0 ?
-                        current.ProcessUserTimeLimitInMilliseconds : other.ProcessUserTimeLimitInMilliseconds,
-                    jobUserTimeLimitInMilliseconds: current.JobUserTimeLimitInMilliseconds > 0 ?
-                        current.JobUserTimeLimitInMilliseconds : other.JobUserTimeLimitInMilliseconds,
-                    // clock time limit is governed by the running cmd client, so we always overwrite its value
-                    clockTimeLimitInMilliseconds: other.ClockTimeLimitInMilliseconds,
-                    propagateOnChildProcesses: current.PropagateOnChildProcesses || other.PropagateOnChildProcesses,
-                    activeProcessLimit: current.ActiveProcessLimit > 0 ? current.ActiveProcessLimit : other.ActiveProcessLimit,
-                    priorityClass: current.PriorityClass != PriorityClass.Undefined ? current.PriorityClass : other.PriorityClass
-                );
             }
         }
 
@@ -392,68 +390,6 @@ static partial class Program
                 }
             }
         }
-    }
-
-    static void ShowLimits(JobSettings session)
-    {
-        const uint ONE_MB = 1_048_576;
-
-        if (session.CpuAffinity is { } cpuAffinity && cpuAffinity.Length > 0)
-        {
-            Console.WriteLine($"CPU groups and affinity masks:");
-            foreach (var (group, affinity) in cpuAffinity)
-            {
-                Console.WriteLine($"  {group}:{affinity:X16}");
-            }
-        }
-        if (session.CpuMaxRate > 0)
-        {
-            Console.WriteLine($"Max CPU rate:                               {session.CpuMaxRate / 100.0:0.00}%");
-            if (session.CpuAffinity != null)
-            {
-                Console.WriteLine("(NOTE: the CPU rate was adjusted to the CPU affinity settings)");
-            }
-        }
-        if (session.MaxBandwidth > 0)
-        {
-            Console.WriteLine($"Max bandwidth (B):                          {(session.MaxBandwidth):#,0}");
-        }
-        if (session.MaxProcessMemory > 0)
-        {
-            Console.WriteLine($"Maximum committed memory (MB):              {(session.MaxProcessMemory / ONE_MB):0,0}");
-        }
-        if (session.MaxJobMemory > 0)
-        {
-            Console.WriteLine($"Maximum job committed memory (MB):          {(session.MaxJobMemory / ONE_MB):0,0}");
-        }
-        if (session.MinWorkingSetSize > 0)
-        {
-            Debug.Assert(session.MaxWorkingSetSize > 0);
-            Console.WriteLine($"Minimum WS memory (MB):                     {(session.MinWorkingSetSize / ONE_MB):0,0}");
-        }
-        if (session.MaxWorkingSetSize > 0)
-        {
-            Debug.Assert(session.MinWorkingSetSize > 0);
-            Console.WriteLine($"Maximum WS memory (MB):                     {(session.MaxWorkingSetSize / ONE_MB):0,0}");
-        }
-        if (session.ProcessUserTimeLimitInMilliseconds > 0)
-        {
-            Console.WriteLine($"Process user-time execution limit (ms):     {session.ProcessUserTimeLimitInMilliseconds:0,0}");
-        }
-        if (session.JobUserTimeLimitInMilliseconds > 0)
-        {
-            Console.WriteLine($"Job user-time execution limit (ms):         {session.JobUserTimeLimitInMilliseconds:0,0}");
-        }
-        if (session.ClockTimeLimitInMilliseconds > 0)
-        {
-            Console.WriteLine($"Clock-time execution limit (ms):            {session.ClockTimeLimitInMilliseconds:0,0}");
-        }
-        if (session.PropagateOnChildProcesses)
-        {
-            Console.WriteLine();
-            Console.WriteLine("All configured limits will also apply to the child processes.");
-        }
-        Console.WriteLine();
     }
 }
 
