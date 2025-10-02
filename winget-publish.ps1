@@ -15,4 +15,4 @@ Get-ChildItem -Path ".winget" -Filter *.yaml | Foreach-Object -Process {
     Set-Content -Encoding Utf8 -Path $FilePath -Value $Content
 }
 
-.\wingetcreate.exe submit -p "procgov v$Version" -t "$env:WINGET_GH_TOKEN" .winget
+.\wingetcreate.exe submit -p "procgov v$Version" .winget
