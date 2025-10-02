@@ -109,7 +109,7 @@ static partial class Program
                    --service-username      The username for the service account (default: NT AUTHORITY\\SYSTEM).
                    --service-password      The password for the service account (required for non-system accounts).
                    --uninstall             Uninstall procgov for a specific process.
-                   --uninstall-all         Uninstall procgov completely (removing all saved process settings)
+                   --uninstall-all         Uninstall procgov completely (removing all saved process settings).
 
                 -q|--quiet                 Do not show procgov messages.
                    --nowait                Does not wait for the target process(es) to exit.
