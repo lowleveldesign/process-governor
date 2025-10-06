@@ -1,5 +1,5 @@
-﻿using MessagePack;
-using Microsoft.Win32;
+﻿using Microsoft.Win32;
+using ProcessGovernor.Library;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO.Pipes;
@@ -8,14 +8,19 @@ using System.ServiceProcess;
 using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.System.Threading;
+using Windows.Win32.System.Services;
+using Windows.Win32.Storage.FileSystem;
+using System.Collections.Immutable;
+using System.Threading.Channels;
+
+using static ProcessGovernor.Library.ProcessGovernorLibraryApi;
 
 namespace ProcessGovernor;
 
-static partial class Program
+public static partial class Program
 {
     public const string ServiceName = "ProcessGovernor";
     public const int ServiceProcessObserverIntervalInMilliseconds = 1500;
-    public const string RegistrySubKeyPath = @"SOFTWARE\ProcessGovernor";
 
     public static int Execute(RunAsService _)
     {
@@ -26,7 +31,10 @@ static partial class Program
 
         Logger.Listeners.Add(new EventLogTraceListener(ServiceName));
 
-        ServiceBase.Run(new ProcessGovernorService());
+        using var service = new ProcessGovernorService();
+
+        ServiceBase.Run(service);
+
         return 0;
     }
 
@@ -44,7 +52,7 @@ static partial class Program
             EventLog.CreateEventSource(ServiceName, "Application");
         }
 
-        if (!WindowsServiceModule.IsServiceInstalled(ServiceName))
+        if (!ProcessGovernorService.IsServiceInstalled(ServiceName))
         {
             if (Environment.ProcessPath is { } executablePath && Path.GetFileName(executablePath) is { } executableName)
             {
@@ -58,7 +66,7 @@ static partial class Program
                 }
 
                 var serviceBinaryPath = $"\"{installExecutablePath}\" --service";
-                WindowsServiceModule.InstallService(ServiceName, ServiceName, serviceBinaryPath,
+                ProcessGovernorService.InstallService(ServiceName, ServiceName, serviceBinaryPath,
                     installData.ServiceUserName, installData.ServiceUserPassword);
             }
             else
@@ -67,8 +75,7 @@ static partial class Program
             }
         }
 
-        SaveProcessSettings(installData.ExecutablePath, new(installData.JobName,
-            installData.JobSettings, installData.Environment, installData.Privileges));
+        InstalledProcessSettingsModule.SaveProcessAndJobSettings(installData.ExecutablePath, installData.JobSettings);
 
         using var serviceControl = new ServiceController(ServiceName);
         if (serviceControl.Status != ServiceControllerStatus.Running)
@@ -88,7 +95,7 @@ static partial class Program
             throw new InvalidOperationException($"admin privileges are required to update the {ServiceName} service settings");
         }
 
-        RemoveSavedProcessSettings(uninstallData.ExecutablePath);
+        InstalledProcessSettingsModule.RemoveSavedProcessSettings(uninstallData.ExecutablePath);
 
         if (!AnyProcessSavedSettingsLeft())
         {
@@ -100,7 +107,7 @@ static partial class Program
 
         static bool AnyProcessSavedSettingsLeft()
         {
-            if (Registry.LocalMachine.OpenSubKey(RegistrySubKeyPath) is { } procgovKey)
+            if (InstalledProcessSettingsModule.RootKey.OpenSubKey($"{InstalledProcessSettingsModule.RegistrySubKeyPath}\\Processes") is { } procgovKey)
             {
                 try
                 {
@@ -132,7 +139,7 @@ static partial class Program
     static void FullUninstall(RemoveAllProcessGovernance removeRequest)
     {
         Debug.Assert(Environment.IsPrivilegedProcess);
-        if (WindowsServiceModule.IsServiceInstalled(ServiceName))
+        if (ProcessGovernorService.IsServiceInstalled(ServiceName))
         {
             using (var serviceControl = new ServiceController(ServiceName))
             {
@@ -142,14 +149,14 @@ static partial class Program
                     serviceControl.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(10));
                 }
             }
-            WindowsServiceModule.UninstallService(ServiceName);
+            ProcessGovernorService.UninstallService(ServiceName);
 
             if (EventLog.SourceExists(ServiceName))
             {
                 EventLog.DeleteEventSource(ServiceName);
             }
 
-            Registry.LocalMachine.DeleteSubKeyTree(RegistrySubKeyPath, throwOnMissingSubKey: false);
+            InstalledProcessSettingsModule.RootKey.DeleteSubKeyTree(InstalledProcessSettingsModule.RegistrySubKeyPath, throwOnMissingSubKey: false);
 
             if (Directory.Exists(removeRequest.ServiceInstallPath) && string.Compare(
                 Path.TrimEndingDirectorySeparator(removeRequest.ServiceInstallPath),
@@ -162,8 +169,8 @@ static partial class Program
                 }
                 else
                 {
-                    Logger.TraceEvent(TraceEventType.Error, 0,
-                        $"I could not delete the {removeRequest.ServiceInstallPath} folder. Please remove it manually.");
+                    Logger.TraceError("[service] I could not delete the {0} folder. Please remove it manually.",
+                        removeRequest.ServiceInstallPath);
                 }
             }
         }
@@ -171,7 +178,7 @@ static partial class Program
 
         static bool TerminateMonitor()
         {
-            using var pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+            using var pipe = new NamedPipeClientStream(".", DefaultPipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
             try
             {
                 pipe.Connect(10);
@@ -179,7 +186,7 @@ static partial class Program
                 // we need to terminate the monitor process
                 if (PInvoke.GetNamedPipeServerProcessId(pipe.SafePipeHandle, out var monitorProcessId))
                 {
-                    Logger.TraceEvent(TraceEventType.Verbose, 0, $"Monitor process ID is: {monitorProcessId}");
+                    Logger.TraceVerbose("[service] Monitor process ID is: {0}", monitorProcessId);
                     var monitorProcessHandle = PInvoke.OpenProcess(
                         PROCESS_ACCESS_RIGHTS.PROCESS_TERMINATE | PROCESS_ACCESS_RIGHTS.PROCESS_SYNCHRONIZE, false, monitorProcessId);
                     if (PInvoke.TerminateProcess(monitorProcessHandle, 0xff))
@@ -188,29 +195,32 @@ static partial class Program
                     }
                     else
                     {
-                        Logger.TraceEvent(TraceEventType.Error, 0, $"Error when terminating the monitor process: {Marshal.GetLastPInvokeError():x}");
+                        Logger.TraceError("[service] Error when terminating the monitor process: {0:x}", Marshal.GetLastPInvokeError());
                         return false;
                     }
                 }
                 else
                 {
-                    Logger.TraceEvent(TraceEventType.Error, 0, $"Error when reading the monitor process ID: {Marshal.GetLastPInvokeError():x}");
+                    Logger.TraceError("[service] Error when reading the monitor process ID: {0:x}", Marshal.GetLastPInvokeError());
                     return false;
                 }
             }
             catch
             {
-                Logger.TraceEvent(TraceEventType.Verbose, 0, "No monitor instance running.");
+                Logger.TraceVerbose("[service] No monitor instance running.");
                 return true;
             }
         }
     }
 
-    internal sealed class ProcessGovernorService : ServiceBase
+    public sealed class ProcessGovernorService : ServiceBase
     {
-        readonly CancellationTokenSource cts = new();
+        private readonly CancellationTokenSource cts = new();
 
-        Task processObserverTask = Task.CompletedTask;
+        private readonly Channel<IMonitorNotification> notificationChannel =
+            Channel.CreateUnbounded<IMonitorNotification>(new UnboundedChannelOptions { SingleReader = true });
+
+        private Task[] backgroundTasks = [];
 
         public ProcessGovernorService()
         {
@@ -219,66 +229,87 @@ static partial class Program
 
         public void Start()
         {
-            processObserverTask = Task.Run(() => RunProcessObserver(cts.Token));
+            TryEnablingDebugPrivilege();
 
-            static void RunProcessObserver(CancellationToken ct)
+            backgroundTasks = [
+                RunBackgroundTask((ct) => RunGovernor(notificationChannel, ct), cts.Token),
+                RunBackgroundTask((ct) => RunNotificationListener(notificationChannel, ct), cts.Token)
+            ];
+
+            static async Task RunGovernor(ChannelWriter<IMonitorNotification> notificationSink, CancellationToken ct)
             {
-                const double CacheInvalidationTimeoutInSeconds = 120;
+                InstalledProcessSettingsModule.GetAllSavedProcessAndJobSettings(out var jobsSettings, out var processesSettings);
+                using var governor = new ProcessGovernorInstance(notificationSink, CreateMonitorClientStream, 1000, ct)
+                {
+                    ProcessMonitorIntervalMilliseconds = ServiceProcessObserverIntervalInMilliseconds,
+                    AutoAssignJobSettings = jobsSettings,
+                    AutoAssignProcessSettings = processesSettings
+                };
 
-                DateTime lastSettingsReloadTimeUtc = DateTime.MinValue;
-                Dictionary<string, ProcessSavedSettings> settingsCache = [];
+                await governor.WaitForStop();
+            }
 
-                var runningProcesses = Process.GetProcesses().Select(p => p.Id).ToHashSet();
+            static NamedPipeClientStream? CreateMonitorClientStream(CancellationToken ct)
+            {
+                var pipe = new NamedPipeClientStream(".", DefaultPipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+                try
+                {
+                    pipe.Connect(10);
 
+                    return pipe;
+                }
+                catch
+                {
+                    Logger.TraceVerbose("[service] Launching monitor...");
+                    StartMonitor();
+
+                    var maxTryCount = 20;
+                    while (!ct.IsCancellationRequested && maxTryCount-- > 0)
+                    {
+                        try { pipe.Connect(100); } catch { }
+                    }
+                    Logger.TraceVerbose("[service] Monitor connection status: {0}",
+                        pipe.IsConnected ? "connected" : "failed to connect");
+
+                    return pipe.IsConnected ? pipe : null;
+                }
+
+                static unsafe void StartMonitor()
+                {
+                    if (Environment.ProcessPath is null)
+                    {
+                        throw new InvalidOperationException("Can't launch monitor process because the ProcessPath is unknown.");
+                    }
+
+                    // we always enable verbose logs for the monitor since it uses ETW or Debug output
+                    string cmdline = $"{Environment.ProcessPath} --monitor --verbose --nogui";
+
+                    var pi = new PROCESS_INFORMATION();
+                    var si = new STARTUPINFOW();
+
+                    fixed (char* cmdlinePtr = cmdline)
+                    {
+                        if (!PInvoke.CreateProcess(null, new PWSTR(cmdlinePtr), null, null, false, 0, null, null, &si, &pi))
+                        {
+                            throw new Win32Exception();
+                        }
+                    }
+
+                    PInvoke.CloseHandle(pi.hProcess);
+                    PInvoke.CloseHandle(pi.hThread);
+                }
+            }
+
+            static async Task RunNotificationListener(ChannelReader<IMonitorNotification> notificationReader, CancellationToken ct)
+            {
                 while (!ct.IsCancellationRequested)
                 {
                     try
                     {
-                        Task.Delay(ServiceProcessObserverIntervalInMilliseconds, ct).Wait(ct);
-
-                        if ((DateTime.UtcNow - lastSettingsReloadTimeUtc).TotalSeconds > CacheInvalidationTimeoutInSeconds)
-                        {
-                            settingsCache = GetProcessesSavedSettings();
-                            lastSettingsReloadTimeUtc = DateTime.UtcNow;
-                        }
-
-                        var currentRunningProcesses = new HashSet<int>(runningProcesses.Count);
-                        foreach (var p in Process.GetProcesses())
-                        {
-                            try
-                            {
-                                if (!runningProcesses.Remove(p.Id) && p.MainModule?.FileName is { } executablePath)
-                                {
-                                    // we detected a new process, time to handle it
-                                    string[] possibleProcessSubKeyNames = [executablePath, Path.GetFileName(executablePath)];
-
-                                    foreach (var sk in possibleProcessSubKeyNames)
-                                    {
-                                        if (settingsCache.TryGetValue(sk, out var settings))
-                                        {
-                                            Logger.TraceEvent(TraceEventType.Verbose, 0,
-                                                $"Discovered a new process to be governed: {executablePath} ({p.Id}), job name: '{settings.JobName}', job settings: {settings.JobSettings}");
-
-                                            // when clock time limit is set we have to wait for the monitored job
-                                            ExitBehavior exitBehavior = settings.JobSettings.ClockTimeLimitInMilliseconds > 0 ?
-                                                ExitBehavior.WaitForJobCompletion : ExitBehavior.DontWaitForJobCompletion;
-                                            _ = Execute(new RunAsCmdApp(settings.JobName, settings.JobSettings, new AttachToProcess([(uint)p.Id]),
-                                                    settings.Environment, settings.Privileges, LaunchConfig.Quiet | LaunchConfig.NoGui,
-                                                    StartBehavior.None, exitBehavior), ct);
-                                        }
-                                    }
-                                }
-                            }
-                            catch (Exception ex) when (ex is InvalidOperationException || ex is Win32Exception)
-                            {
-                                // might occur when we try to access the process' main module
-                                Logger.TraceEvent(TraceEventType.Warning, 0, $"Failed when getting information about process {p.Id}: {ex}");
-                            }
-                            currentRunningProcesses.Add(p.Id);
-                        }
-                        runningProcesses = currentRunningProcesses;
+                        var n = await notificationReader.ReadAsync(ct);
+                        Logger.TraceVerbose("[service] Notification received: {0}", n);
                     }
-                    catch (OperationCanceledException) { /* could be thrown by Task.Delay.Wait */ }
+                    catch (Exception ex) when (ex.IsCancelledException()) { }
                 }
             }
         }
@@ -291,194 +322,369 @@ static partial class Program
         protected override void OnStop()
         {
             cts.Cancel();
-            try
+            if (!Task.WaitAll(backgroundTasks, 4000))
             {
-                if (!processObserverTask.Wait(TimeSpan.FromSeconds(10)))
-                {
-                    Logger.TraceEvent(TraceEventType.Warning, 0, "Process observer task did not complete in time.");
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.TraceEvent(TraceEventType.Error, 0, $"Process observer task was in erronous state: {ex}");
-            }
-
-            processObserverTask = Task.CompletedTask;
-        }
-    }
-
-    internal static Dictionary<string, ProcessSavedSettings> GetProcessesSavedSettings()
-    {
-        Dictionary<string, ProcessSavedSettings> settings = [];
-
-        using var rootKey = Environment.IsPrivilegedProcess ? Registry.LocalMachine : Registry.CurrentUser;
-
-        if (rootKey.OpenSubKey(RegistrySubKeyPath) is { } procgovKey)
-        {
-            try
-            {
-                foreach (string sk in procgovKey.GetSubKeyNames())
-                {
-                    if (procgovKey.OpenSubKey(sk) is { } processKey)
-                    {
-                        try
-                        {
-                            settings[sk] = new(
-                                JobName: processKey.GetValue("JobName") as string,
-                                JobSettings: ParseJobSettings(processKey),
-                                Environment: ParseEnvironmentVars(processKey),
-                                Privileges: ParsePrivileges(processKey)
-                            );
-                        }
-                        finally
-                        {
-                            processKey.Dispose();
-                        }
-                    }
-                }
-            }
-            finally
-            {
-                procgovKey.Dispose();
-            }
-        }
-
-        return settings;
-
-
-        static List<string> ParsePrivileges(RegistryKey processKey)
-        {
-            if (processKey.GetValue("Privileges") is string[] privileges)
-            {
-                return [.. privileges];
-            }
-            return [];
-        }
-
-        static Dictionary<string, string> ParseEnvironmentVars(RegistryKey processKey)
-        {
-            var envVars = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-            if (processKey.GetValue("Environment") is string[] lines)
-            {
-                foreach (var line in lines)
-                {
-                    var ind = line.IndexOf('=');
-                    if (ind > 0)
-                    {
-                        var key = line[..ind].Trim();
-                        if (!string.IsNullOrEmpty(key))
-                        {
-                            var val = line[(ind + 1)..].Trim();
-                            envVars.Add(key, val);
-                        }
-                    }
-                    else
-                    {
-                        Logger.TraceEvent(TraceEventType.Warning, 0, $"The environment block for process {processKey.Name} contains invalid line: {line}");
-                    }
-                }
-            }
-
-            return envVars;
-        }
-    }
-
-    static JobSettings ParseJobSettings(RegistryKey processKey)
-    {
-        if (processKey.GetValue("JobSettings", Array.Empty<byte>()) is byte[] serializedBytes && serializedBytes.Length > 0)
-        {
-            try
-            {
-                return MessagePackSerializer.Deserialize<JobSettings>(serializedBytes);
-            }
-            catch (MessagePackSerializationException) { }
-        }
-
-        Logger.TraceEvent(TraceEventType.Warning, 0, $"Invalid job settings for process {processKey.Name}");
-        return new();
-    }
-
-    internal static void SaveProcessSettings(string executablePath, ProcessSavedSettings settings)
-    {
-        using var procgovKey = Registry.LocalMachine.CreateSubKey(RegistrySubKeyPath);
-        using var processKey = procgovKey.CreateSubKey(executablePath);
-
-        if (settings.Environment.Count > 0)
-        {
-            processKey.SetValue("Environment", (string[])[.. settings.Environment.Select(kv => $"{kv.Key}={kv.Value}")], RegistryValueKind.MultiString);
-        }
-        if (settings.Privileges.Count > 0)
-        {
-            processKey.SetValue("Privileges", settings.Privileges.ToArray(), RegistryValueKind.MultiString);
-        }
-
-        if (settings.JobName is { } jobName && jobName != "")
-        {
-            string[] otherProcessKeyNames = [.. procgovKey.GetSubKeyNames().Where(sk => sk != executablePath)];
-
-            processKey.SetValue("JobName", jobName, RegistryValueKind.String);
-
-            if (settings.JobSettings.IsEmpty())
-            {
-                // if there are no job settings, we will try to find them by name and use for our process
-                var jobSettings = otherProcessKeyNames.Aggregate(settings.JobSettings, (jobSettings, keyName) =>
-                {
-                    using var processKey = procgovKey.OpenSubKey(keyName);
-                    if (processKey?.GetValue("JobName") as string == jobName)
-                    {
-                        Logger.TraceEvent(TraceEventType.Information, 0,
-                            $"Found installed process '{keyName}' with the same job name. Its settings will be copied.");
-                        return ParseJobSettings(processKey);
-                    }
-                    else
-                    {
-                        return jobSettings;
-                    }
-                });
-
-                processKey.SetValue("JobSettings", MessagePackSerializer.Serialize(jobSettings), RegistryValueKind.Binary);
-
-                ShowLimits(jobSettings);
+                Logger.TraceWarning("[service] Some backgroung tasks did not finish in the alotted time.");
             }
             else
             {
-                var serializedJobSettings = MessagePackSerializer.Serialize(settings.JobSettings);
-                // processes with the same job name will have their job settings overwritten
-                Array.ForEach(otherProcessKeyNames, (keyName) =>
-                {
-                    using var processKey = procgovKey.OpenSubKey(keyName, true);
-                    if (processKey?.GetValue("JobName") as string == jobName)
-                    {
-                        processKey.SetValue("JobSettings", serializedJobSettings, RegistryValueKind.Binary);
-                    }
-                });
-                processKey.SetValue("JobSettings", serializedJobSettings, RegistryValueKind.Binary);
+                Logger.TraceVerbose("[service] Service stopped gracefully.");
+            }
 
-                ShowLimits(settings.JobSettings);
+            backgroundTasks = [];
+        }
+
+        public static bool IsServiceInstalled(string name)
+        {
+            unsafe
+            {
+                if (PInvoke.OpenSCManager((PCWSTR)null, null, PInvoke.SC_MANAGER_CONNECT) is var scmHandle && scmHandle.IsNull)
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                }
+
+                try
+                {
+                    var namePtr = Marshal.StringToHGlobalUni(name);
+                    try
+                    {
+                        if (PInvoke.OpenService(scmHandle, (char*)namePtr, PInvoke.SERVICE_QUERY_STATUS) is var svcHandle && svcHandle.IsNull)
+                        {
+                            if (Marshal.GetLastWin32Error() is var err && err == (int)WIN32_ERROR.ERROR_SERVICE_DOES_NOT_EXIST)
+                            {
+                                return false;
+                            }
+
+                            throw new Win32Exception(err);
+                        }
+                        PInvoke.CloseServiceHandle(svcHandle);
+
+                        return true;
+                    }
+                    finally
+                    {
+                        Marshal.FreeHGlobal(namePtr);
+                    }
+                }
+                finally
+                {
+                    PInvoke.CloseServiceHandle(scmHandle);
+                }
             }
         }
-        else
-        {
-            processKey.SetValue("JobSettings", MessagePackSerializer.Serialize(settings.JobSettings), RegistryValueKind.Binary);
 
-            ShowLimits(settings.JobSettings);
+        public static void InstallService(string name, string displayName, string binaryPath, string svcAccountName, string? svcAccountPassword)
+        {
+            unsafe
+            {
+                if (PInvoke.OpenSCManager((PCWSTR)null, null, PInvoke.SC_MANAGER_CREATE_SERVICE) is var scmHandle && scmHandle.IsNull)
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                }
+
+                nint namePtr = 0, displayNamePtr = 0, binaryPathPtr = 0, svcAccountNamePtr = 0, svcAccountPasswordPtr = 0;
+                try
+                {
+                    namePtr = Marshal.StringToHGlobalUni(name);
+                    displayNamePtr = Marshal.StringToHGlobalUni(displayName);
+                    binaryPathPtr = Marshal.StringToHGlobalUni(binaryPath);
+                    svcAccountNamePtr = Marshal.StringToHGlobalUni(svcAccountName);
+                    if (svcAccountPassword is not null)
+                    {
+                        svcAccountPasswordPtr = Marshal.StringToHGlobalUni(svcAccountPassword);
+                    }
+
+                    if (PInvoke.CreateService(scmHandle, (char*)namePtr, (char*)displayNamePtr, PInvoke.SERVICE_ALL_ACCESS,
+                        ENUM_SERVICE_TYPE.SERVICE_WIN32_OWN_PROCESS, SERVICE_START_TYPE.SERVICE_DEMAND_START, SERVICE_ERROR.SERVICE_ERROR_NORMAL,
+                        (char*)binaryPathPtr, (char*)null, null, (char*)null, (char*)svcAccountNamePtr, (char*)svcAccountPasswordPtr) is var svcHandle
+                        && svcHandle.IsNull)
+                    {
+                        throw new Win32Exception(Marshal.GetLastWin32Error());
+                    }
+                    PInvoke.CloseServiceHandle(svcHandle);
+                }
+                finally
+                {
+                    PInvoke.CloseServiceHandle(scmHandle);
+
+                    if (namePtr != 0) { Marshal.FreeHGlobal(namePtr); }
+                    if (displayNamePtr != 0) { Marshal.FreeHGlobal(displayNamePtr); }
+                    if (binaryPathPtr != 0) { Marshal.FreeHGlobal(binaryPathPtr); }
+                    if (svcAccountNamePtr != 0) { Marshal.FreeHGlobal(svcAccountNamePtr); }
+                    if (svcAccountPasswordPtr != 0) { Marshal.FreeHGlobal(svcAccountPasswordPtr); }
+                }
+            }
+        }
+
+        public static void UninstallService(string name)
+        {
+            unsafe
+            {
+                if (PInvoke.OpenSCManager((PCWSTR)null, null, PInvoke.SC_MANAGER_CONNECT) is var scmHandle && scmHandle.IsNull)
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                }
+
+                nint namePtr = 0;
+                try
+                {
+                    namePtr = Marshal.StringToHGlobalUni(name);
+                    if (PInvoke.OpenService(scmHandle, (char*)namePtr, (uint)FILE_ACCESS_RIGHTS.DELETE) is var svcHandle && svcHandle.IsNull)
+                    {
+                        throw new Win32Exception(Marshal.GetLastWin32Error());
+                    }
+
+                    if (!PInvoke.DeleteService(svcHandle))
+                    {
+                        throw new Win32Exception(Marshal.GetLastWin32Error());
+                    }
+
+                    PInvoke.CloseServiceHandle(svcHandle);
+                }
+                finally
+                {
+                    PInvoke.CloseServiceHandle(scmHandle);
+
+                    if (namePtr != 0) { Marshal.FreeHGlobal(namePtr); }
+                }
+            }
         }
     }
 
-    internal static void RemoveSavedProcessSettings(string executablePath)
+    public static class InstalledProcessSettingsModule
     {
-        if (Registry.LocalMachine.OpenSubKey(RegistrySubKeyPath, writable: true) is { } procgovKey)
+        public const string RegistrySubKeyPath = @"SOFTWARE\ProcessGovernor";
+
+        // used in tests only to make them work in a regular user scope
+        public static bool IsUserScoped { get; set; } = false;
+
+        public static RegistryKey RootKey => IsUserScoped ? Registry.CurrentUser : Registry.LocalMachine;
+
+        public static void SaveProcessAndJobSettings(string executablePath, JobSettings settings)
         {
+            var jobId = settings.RunMode switch
+            {
+                RunInNamedJob n => n.JobName,
+                _ => Guid.NewGuid().ToString()
+            };
+
+            using var procgovKey = RootKey.CreateSubKey(RegistrySubKeyPath);
+
+            using var jobsKey = OpenOrCreateRegistryKey(procgovKey, "Jobs");
+            byte[] bytes = [.. (byte[])[JobSettings.Version], .. MsgPackSerializer.Serialize(settings)];
+            jobsKey.SetValue(jobId, bytes, RegistryValueKind.Binary);
+
+            using var processesKey = OpenOrCreateRegistryKey(procgovKey, "Processes");
+            processesKey.SetValue(executablePath, jobId, RegistryValueKind.String);
+
+            // we should remove process keys used in older procgov versions
             procgovKey.DeleteSubKey(executablePath, throwOnMissingSubKey: false);
-            procgovKey.Dispose();
+
+            // Helpers
+
+            static RegistryKey OpenOrCreateRegistryKey(RegistryKey procgovKey, string name)
+            {
+                if (procgovKey.OpenSubKey(name, writable: true) is not { } key)
+                {
+                    key = procgovKey.CreateSubKey(name, writable: true);
+                }
+                return key;
+            }
+        }
+
+        public static void RemoveSavedProcessSettings(string executablePath)
+        {
+            using var procgovKey = RootKey.CreateSubKey(RegistrySubKeyPath);
+
+            using (var processesKey = procgovKey.OpenSubKey("Processes", writable: true))
+            {
+                if (processesKey is not null)
+                {
+                    if (processesKey.GetValue(executablePath) is string jobId)
+                    {
+                        processesKey.DeleteValue(executablePath, throwOnMissingValue: false);
+
+                        // check if there are any more processes using this job id and if not, remove it as well
+                        if (!processesKey.GetValueNames().Any((n) =>
+                                processesKey.GetValue(n) is string otherJobId &&
+                                    jobId.Equals(otherJobId, StringComparison.Ordinal)))
+                        {
+                            if (RootKey.OpenSubKey($"{RegistrySubKeyPath}\\Jobs", writable: true) is { } jobsKey)
+                            {
+                                try { jobsKey.DeleteValue(jobId, throwOnMissingValue: false); }
+                                finally { jobsKey.Dispose(); }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // we should remove process keys used in older procgov versions
+            procgovKey.DeleteSubKey(executablePath, throwOnMissingSubKey: false);
+        }
+
+        public static void GetAllSavedProcessAndJobSettings(out ImmutableDictionary<ConfigJobId, JobSettings> jobsSettings,
+            out ImmutableDictionary<string, ConfigJobId> processesSettings)
+        {
+            var jobs = GetSavedJobsSettings();
+            var processes = GetSavedProcessesSettings(jobs);
+#pragma warning disable CS0612 // Type or member is obsolete
+            AddSavedLegacyProcessSettings(processes, jobs);
+#pragma warning restore CS0612 // Type or member is obsolete
+
+            jobsSettings = [.. jobs];
+            processesSettings = [.. processes];
+
+            // Helpers
+
+            static Dictionary<ConfigJobId, JobSettings> GetSavedJobsSettings()
+            {
+                if (RootKey.OpenSubKey($"{RegistrySubKeyPath}\\Jobs") is { } jobsKey)
+                {
+                    try
+                    {
+                        return jobsKey.GetValueNames().Select(jobId => new KeyValuePair<ConfigJobId, JobSettings>(
+                            new(jobId), ParseJobSettings(jobsKey, jobId))).ToDictionary();
+                    }
+                    finally { jobsKey.Dispose(); }
+                }
+                else { return []; }
+
+
+                static JobSettings ParseJobSettings(RegistryKey jobsKey, string jobId)
+                {
+                    if (jobsKey.GetValue(jobId, Array.Empty<byte>()) is byte[] bytes && bytes.Length > 0)
+                    {
+                        try
+                        {
+                            return bytes[0] switch
+                            {
+                                4 => MsgPackSerializer.Deserialize<JobSettings>(bytes.AsMemory()[1..]) ?? JobSettings.Empty,
+                                var v => throw new ArgumentException($"unrecognized settings version: {v}")
+                            };
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.TraceWarning("[service] Error reading job {0} settings: {1}", jobId, ex);
+                            return JobSettings.Empty;
+                        }
+                    }
+                    else
+                    {
+
+                        Logger.TraceWarning($"[service] Invalid job settings {jobId}");
+                        return JobSettings.Empty;
+                    }
+                }
+            }
+
+            static Dictionary<string, ConfigJobId> GetSavedProcessesSettings(Dictionary<ConfigJobId, JobSettings> jobs)
+            {
+                if (RootKey.OpenSubKey($"{RegistrySubKeyPath}\\Processes") is { } processesKey)
+                {
+                    try
+                    {
+                        return processesKey.GetValueNames().ToDictionary(name => name,
+                            name =>
+                            {
+                                ConfigJobId jobId = new(processesKey.GetValue(name) is string id ? id : Guid.NewGuid().ToString());
+                                if (jobs.TryAdd(jobId, JobSettings.Empty))
+                                {
+                                    Logger.TraceWarning("[service] Job {0} settings missing or invalid for the process '{1}'",
+                                        jobId, name);
+                                }
+                                return jobId;
+                            });
+                    }
+                    finally { processesKey.Dispose(); }
+                }
+                else { return []; }
+            }
+
+            [Obsolete]
+            static void AddSavedLegacyProcessSettings(Dictionary<string, ConfigJobId> processes, Dictionary<ConfigJobId, JobSettings> jobs)
+            {
+                if (RootKey.OpenSubKey($"{RegistrySubKeyPath}") is { } procgovKey)
+                {
+                    foreach (var processKeyName in procgovKey.GetSubKeyNames())
+                    {
+                        // check if it's a special key or maybe was installed with new settings
+                        if (processKeyName == "Processes" || processKeyName == "Jobs" || processes.ContainsKey(processKeyName))
+                        {
+                            continue;
+                        }
+
+                        using var processKey = procgovKey.OpenSubKey(processKeyName);
+                        if (processKey is not null)
+                        {
+                            ConfigJobId generatedJobId = new(Guid.NewGuid().ToString());
+                            jobs.Add(generatedJobId, ReadJobSettings(processKey) with
+                            {
+                                Privileges = ParsePrivileges(processKey),
+                                Environment = ParseEnvironmentVars(processKey)
+                            });
+                            processes.Add(processKeyName, generatedJobId);
+                        }
+                    }
+
+                    // Helpers
+
+                    static JobSettings ReadJobSettings(RegistryKey processKey)
+                    {
+                        try
+                        {
+                            if (processKey?.GetValue("JobSettings") is byte[] bytes && bytes.Length > 0)
+                            {
+                                return MsgPackSerializer.Deserialize<JobSettings_v3>(bytes)?.ToCurrent() ?? JobSettings.Empty;
+                            }
+                            else { throw new InvalidDataException("JobSettings missing or empty"); }
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.TraceWarning("[service] Error reading the process '{0}' job settings: {1}", processKey?.Name, ex);
+                            return JobSettings.Empty;
+                        }
+                    }
+
+                    static ImmutableArray<string> ParsePrivileges(RegistryKey processKey)
+                    {
+                        if (processKey.GetValue("Privileges") is string[] privileges)
+                        {
+                            return [.. privileges];
+                        }
+                        return [];
+                    }
+
+                    static ImmutableDictionary<string, string> ParseEnvironmentVars(RegistryKey processKey)
+                    {
+                        var envVars = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+                        if (processKey.GetValue("Environment") is string[] lines)
+                        {
+                            foreach (var line in lines)
+                            {
+                                var ind = line.IndexOf('=');
+                                if (ind > 0)
+                                {
+                                    var key = line[..ind].Trim();
+                                    if (!string.IsNullOrEmpty(key))
+                                    {
+                                        var val = line[(ind + 1)..].Trim();
+                                        envVars.Add(key, val);
+                                    }
+                                }
+                                else
+                                {
+                                    Logger.TraceEvent(TraceEventType.Warning, 0, $"The environment block for process {processKey.Name} contains invalid line: {line}");
+                                }
+                            }
+                        }
+
+                        return [.. envVars];
+                    }
+                }
+            }
         }
     }
-
-    internal sealed record ProcessSavedSettings(
-        string? JobName,
-        JobSettings JobSettings,
-        Dictionary<string, string> Environment,
-        List<string> Privileges
-    );
 }
+

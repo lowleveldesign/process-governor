@@ -1,18 +1,28 @@
-﻿using NUnit.Framework.Internal;
-using ProcessGovernor.Tests.Code;
+﻿using Microsoft.Win32.SafeHandles;
+using NUnit.Framework.Internal;
+using ProcessGovernor.Library;
 using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Windows.Win32;
 
 namespace ProcessGovernor.Tests.Application;
 
 public static class CmdAppTests
 {
+    private static RunningJobId GenerateNewNamedJobId() =>
+        new(RunModes.NamedJob($"procgov-{Guid.NewGuid():D}"), new(""));
+
+    static CmdAppTests()
+    {
+        SharedApi.InitializeTestContext();
+    }
+
     [Test]
-    public static async Task LaunchProcess(
+    public static async Task LaunchProcessInNamedJob(
         [Values(
             Environment.SpecialFolder.System,
             Environment.SpecialFolder.SystemX86)
@@ -23,7 +33,10 @@ public static class CmdAppTests
 
         var procgovExecutablePath = Path.Combine(AppContext.BaseDirectory, "procgov.exe");
 
-        var jobName = Program.GenerateNewJobName();
+        var jobId = GenerateNewNamedJobId();
+        Assert.That(jobId.IsNamedJob, Is.True);
+        string jobName = jobId.GetJobName()!;
+
         var psi = new ProcessStartInfo(procgovExecutablePath)
         {
             Arguments = $"--job-name=\"{jobName}\" -c 0x1 \"{executablePath}\"",
@@ -43,19 +56,13 @@ public static class CmdAppTests
 
         try
         {
+            Assert.That(await SharedApi.GetJobIdFromMonitor((uint)winver.Id, cts.Token), Is.EqualTo(jobId));
 
-            // check if the monitor is running
-            var job = await SharedApi.TryGetJobDataFromMonitor((uint)winver.Id, cts.Token);
-            Assert.That(job, Is.Not.Null);
-            
             var defaultGroup = SharedApi.GetDefaultProcessorGroup();
-            Assert.Multiple(() =>
-            {
-                var (receivedJobName, receivedJobSettings) = job.Value;
-                Assert.That(receivedJobName, Is.EqualTo(jobName));
-                Assert.That(receivedJobSettings, Is.EqualTo(new JobSettings(cpuAffinity: [new(defaultGroup.Number, 0x1)])));
-            });
 
+            using var jobHandle = Win32JobModule.OpenJobHandle(jobName, PInvoke.JOB_OBJECT_QUERY);
+            Assert.That(Win32JobModule.QueryJobSettings(jobHandle), Is.EqualTo(
+                    (Win32JobSettings)(JobSettings.Empty with { CpuAffinity = [new(defaultGroup.Number, 0x1)] })));
         }
         finally
         {
@@ -75,7 +82,53 @@ public static class CmdAppTests
     }
 
     [Test]
-    public static async Task LaunchProcessNoWaitAndUpdate(
+    public static async Task LaunchProcessInAnonymousJob(
+        [Values(
+            Environment.SpecialFolder.System,
+            Environment.SpecialFolder.SystemX86)
+        ]Environment.SpecialFolder systemFolder)
+    {
+        string executablePath = Path.Combine(Environment.GetFolderPath(systemFolder), "winver.exe");
+        using var cts = new CancellationTokenSource(60000);
+
+        var procgovExecutablePath = Path.Combine(AppContext.BaseDirectory, "procgov.exe");
+
+        var psi = new ProcessStartInfo(procgovExecutablePath)
+        {
+            Arguments = $"-c 0x1 \"{executablePath}\"",
+            UseShellExecute = false
+        };
+        using var procgov = Process.Start(psi)!;
+
+        // no monitor should be running
+        Assert.That(await SharedApi.IsMonitorListening(cts.Token), Is.False);
+
+        var winver = Process.GetProcessesByName("winver").FirstOrDefault(p => p.StartTime > procgov.StartTime);
+        while (!cts.IsCancellationRequested && winver == null)
+        {
+            winver = Process.GetProcessesByName("winver").FirstOrDefault(p => p.StartTime > procgov.StartTime);
+        }
+        Debug.Assert(winver is not null);
+
+        try
+        {
+            Assert.That(Win32JobModule.IsProcessInJob(winver.SafeHandle, new SafeFileHandle()));
+        }
+        finally
+        {
+            winver.CloseMainWindow();
+            if (!winver.WaitForExit(2000))
+            {
+                winver.Kill();
+            }
+        }
+
+        await procgov.WaitForExitAsync(cts.Token);
+    }
+
+
+    [Test]
+    public static async Task LaunchProcessInNamedJobAndUpdate(
         [Values(
             Environment.SpecialFolder.System,
             Environment.SpecialFolder.SystemX86)
@@ -87,9 +140,13 @@ public static class CmdAppTests
 
         var procgovExecutablePath = Path.Combine(AppContext.BaseDirectory, "procgov.exe");
 
+        var jobId = GenerateNewNamedJobId();
+        Assert.That(jobId.IsNamedJob, Is.True);
+        string jobName = jobId.GetJobName()!;
+
         var psi = new ProcessStartInfo(procgovExecutablePath)
         {
-            Arguments = $"-c 0x1 -v --nowait \"{executablePath}\"",
+            Arguments = $"--job-name {jobName} -c 0x1 -v --nowait \"{executablePath}\"",
             UseShellExecute = false
         };
         var startTime = DateTime.Now;
@@ -114,16 +171,18 @@ public static class CmdAppTests
         try
         {
             // check if the monitor is running
-            var job = await SharedApi.TryGetJobDataFromMonitor((uint)winver.Id, cts.Token);
-            Assert.That(job, Is.Not.Null);
+            Assert.That(await SharedApi.GetJobIdFromMonitor((uint)winver.Id, cts.Token), Is.EqualTo(jobId));
 
             var defaultGroup = SharedApi.GetDefaultProcessorGroup();
-            Assert.That(job.Value.Settings, Is.EqualTo(new JobSettings(cpuAffinity: [new(defaultGroup.Number, 0x1)])));
+
+            using var jobHandle = Win32JobModule.OpenJobHandle(jobName, PInvoke.JOB_OBJECT_QUERY);
+            Assert.That(Win32JobModule.QueryJobSettings(jobHandle), Is.EqualTo(
+                    (Win32JobSettings)(JobSettings.Empty with { CpuAffinity = [new(defaultGroup.Number, 0x1)] })));
 
             // try to update the job settings
             psi = new ProcessStartInfo(procgovExecutablePath)
             {
-                Arguments = $"-c 0x3 -v --nowait --pid {winver.Id}",
+                Arguments = $"--job-name {jobName} -c 0x3 -v --nowait --pid {winver.Id}",
                 UseShellExecute = false,
             };
             using (var procgov = Process.Start(psi)!)
@@ -132,10 +191,11 @@ public static class CmdAppTests
             }
 
             // check if settings were updated
-            job = await SharedApi.TryGetJobDataFromMonitor((uint)winver.Id, cts.Token);
-            Assert.That(job, Is.Not.Null);
-            Assert.That(job.Value.Settings, Is.EqualTo(new JobSettings(cpuAffinity: [new(defaultGroup.Number, defaultGroup.AffinityMask & 0x3)])));
-
+            Assert.That(Win32JobModule.QueryJobSettings(jobHandle), Is.EqualTo(
+                    (Win32JobSettings)(JobSettings.Empty with
+                    {
+                        CpuAffinity = [new(defaultGroup.Number, defaultGroup.AffinityMask & 0x3)]
+                    })));
         }
         finally
         {
@@ -147,13 +207,13 @@ public static class CmdAppTests
         }
 
         // give the monitor some time to process the process exit event
-        await Task.Delay(Program.DefaultMaxMonitorIdleTime + TimeSpan.FromSeconds(1), cts.Token);
+        await Task.Delay(Program.DefaultMaxMonitorIdleTime + TimeSpan.FromSeconds(3), cts.Token);
 
         Assert.That(await SharedApi.IsMonitorListening(cts.Token), Is.False);
     }
 
     [Test]
-    public static async Task AttachToProcess(
+    public static async Task AttachProcessToAnonymousJob(
         [Values(
             Environment.SpecialFolder.System,
             Environment.SpecialFolder.SystemX86)
@@ -170,39 +230,21 @@ public static class CmdAppTests
 
             TestContext.Out.WriteLine($"winver PID: {winver.Id}");
 
-            using (var procgov = Process.Start(new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "procgov.exe"))
+            using var procgov = Process.Start(new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "procgov.exe"))
             {
                 Arguments = $"-c 0x1 --nowait -p \"{winver.Id}\"",
                 UseShellExecute = false,
                 RedirectStandardOutput = true
-            })!)
-            {
-                _ = procgov.StandardOutput.ReadToEndAsync(cts.Token).ContinueWith(t => TestContext.Out.WriteLine(t.Result), cts.Token);
+            })!;
 
-                await procgov.WaitForExitAsync(cts.Token);
+            _ = procgov.StandardOutput.ReadToEndAsync(cts.Token).ContinueWith(t => TestContext.Out.WriteLine(t.Result), cts.Token);
 
-                // give the monitor some time to process the job start event
-                await Task.Delay(2000);
+            await procgov.WaitForExitAsync(cts.Token);
 
-                var job = await SharedApi.TryGetJobDataFromMonitor((uint)winver.Id, cts.Token);
-                Assert.That(job, Is.Not.Null);
-                Assert.That(job.Value.Settings, Is.EqualTo(new JobSettings(cpuAffinity: [new(defaultGroup.Number, 0x1)])));
-            }
+            // no monitor should be running
+            Assert.That(await SharedApi.IsMonitorListening(cts.Token), Is.False);
 
-            // update the job settings
-            using (var procgov = Process.Start(new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "procgov.exe"))
-            {
-                Arguments = $"-c 0x2 --nowait -p \"{winver.Id}\"",
-                UseShellExecute = false
-            })!)
-            {
-                await procgov.WaitForExitAsync(cts.Token);
-
-                // check if the monitor is running
-                var job = await SharedApi.TryGetJobDataFromMonitor((uint)winver.Id, cts.Token);
-                Assert.That(job, Is.Not.Null);
-                Assert.That(job.Value.Settings, Is.EqualTo(new JobSettings(cpuAffinity: [new(defaultGroup.Number, defaultGroup.AffinityMask & 0x2)])));
-            }
+            Assert.That(Win32JobModule.IsProcessInJob(winver.SafeHandle, new SafeFileHandle()));
         }
         finally
         {
@@ -212,15 +254,10 @@ public static class CmdAppTests
                 winver.Kill();
             }
         }
-
-        // give the monitor some time to process the process exit event
-        await Task.Delay(Program.DefaultMaxMonitorIdleTime + TimeSpan.FromSeconds(1), cts.Token);
-
-        Assert.That(await SharedApi.IsMonitorListening(cts.Token), Is.False);
     }
 
     [Test]
-    public static async Task AttachToMultipleProcesses(
+    public static async Task AttachMultipleProcessesToNamedJob(
         [Values(
             Environment.SpecialFolder.System,
             Environment.SpecialFolder.SystemX86)
@@ -235,9 +272,13 @@ public static class CmdAppTests
 
         await Task.Delay(2000);
 
+        var jobId = GenerateNewNamedJobId();
+        Assert.That(jobId.IsNamedJob, Is.True);
+        string jobName = jobId.GetJobName()!;
+
         using var procgov = Process.Start(new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "procgov.exe"))
         {
-            Arguments = $"-c 0x1 -p {winver1.Id} -p {winver2.Id}",
+            Arguments = $"--job-name {jobName} -c 0x1 -p {winver1.Id} -p {winver2.Id}",
             UseShellExecute = false,
             RedirectStandardOutput = true
         })!;
@@ -250,12 +291,12 @@ public static class CmdAppTests
             await Task.Delay(2000);
 
             // check if the monitor is running
-            var job = await SharedApi.TryGetJobDataFromMonitor((uint)winver1.Id, cts.Token);
-            Assert.That(job, Is.Not.Null);
-            var (_, jobSettings) = job.Value;
+            Assert.That(await SharedApi.GetJobIdFromMonitor((uint)winver1.Id, cts.Token), Is.EqualTo(jobId));
 
+            using var jobHandle = Win32JobModule.OpenJobHandle(jobName, PInvoke.JOB_OBJECT_QUERY);
             var defaultGroup = SharedApi.GetDefaultProcessorGroup();
-            Assert.That(jobSettings, Is.EqualTo(new JobSettings(cpuAffinity: [new(defaultGroup.Number, 0x1)])));
+            Assert.That(Win32JobModule.QueryJobSettings(jobHandle), Is.EqualTo(
+                (Win32JobSettings)(JobSettings.Empty with { CpuAffinity = [new(defaultGroup.Number, 0x1)] })));
 
         }
         finally

@@ -1,4 +1,5 @@
-﻿using System;
+﻿using ProcessGovernor.Library;
+using System;
 using System.Collections.Generic;
 using System.IO;
 
@@ -8,42 +9,6 @@ using static SharedApi;
 
 public static partial class ProgramTests
 {
-    static readonly SystemInfo TestSystemInfo2Numas4Groups = new(
-        NumaNodes: [
-            new(0, [new(0, 0xF), new(1, 0x7)]),
-            new(1, [new(2, 0xF), new(3, 0x7)])
-        ],
-        ProcessorGroups: [
-            new(0, 0xF), new(1, 0x7), new(2, 0xF), new(3, 0x7)
-        ],
-        CpuCores: [
-            new(true, new(0, 0x1)), new(true, new(0, 0x2)), new(true, new(0, 0x4)), new(true, new(0, 0x8)),
-            new(true, new(1, 0x1)), new(true, new(1, 0x2)), new(true, new(1, 0x4)),
-            new(true, new(2, 0x1)), new(true, new(2, 0x2)), new(true, new(2, 0x4)), new(true, new(2, 0x8)),
-            new(true, new(3, 0x1)), new(true, new(3, 0x2)), new(true, new(3, 0x4)),
-    ]);
-
-    static readonly SystemInfo TestSystemInfo2Numas1Group = new(
-        NumaNodes: [
-            new(0, [new(0, 0x007F)]),
-            new(1, [new(0, 0x3F80)])
-        ],
-        ProcessorGroups: [
-            new(0, 0x3FFF)
-        ],
-        CpuCores: [
-            new(true, new(0, 0x0001)), new(true, new(0, 0x0002)), new(true, new(0, 0x0004)), new(true, new(0, 0x0008)),
-            new(true, new(0, 0x0010)), new(true, new(0, 0x0020)), new(true, new(0, 0x0040)), new(true, new(0, 0x0080)), 
-            new(true, new(0, 0x0100)), new(true, new(0, 0x0200)), new(true, new(0, 0x0400)), new(true, new(0, 0x0800)),
-            new(true, new(0, 0x1000)), new(true, new(3, 0x2000)),
-        ]
-    );
-
-    static ProgramTests()
-    {
-        ProcessGovernorTestContext.Initialize();
-    }
-
     [Test]
     public static void ParseArgsExecutionMode()
     {
@@ -260,7 +225,7 @@ public static partial class ProgramTests
     {
         switch (Program.ParseArgs(TestSystemInfo2Numas4Groups, ["test.exe"]))
         {
-            case RunAsCmdApp { JobSettings.CpuAffinity: null }:
+            case RunAsCmdApp { JobSettings: null }:
                 break;
             default:
                 Assert.Fail();
@@ -306,7 +271,7 @@ public static partial class ProgramTests
                 Assert.Fail();
                 break;
         }
-        
+
         switch (Program.ParseArgs(TestSystemInfo2Numas1Group, ["--cpu=9", "test.exe"]))
         {
             case RunAsCmdApp { JobSettings.CpuAffinity: var aff }:
@@ -592,7 +557,7 @@ public static partial class ProgramTests
 
         switch (Program.ParseArgs(RealSystemInfo, ["-t=10m", "test.exe"]))
         {
-            case RunAsCmdApp { JobSettings.ClockTimeLimitInMilliseconds: var t }:
+            case RunAsCmdApp { JobSettings.JobClockTimeLimitInMilliseconds: var t }:
                 Assert.That(t, Is.EqualTo(600000u));
                 break;
             default:
@@ -602,7 +567,7 @@ public static partial class ProgramTests
 
         switch (Program.ParseArgs(RealSystemInfo, ["--timeout=10h", "test.exe"]))
         {
-            case RunAsCmdApp { JobSettings.ClockTimeLimitInMilliseconds: var t }:
+            case RunAsCmdApp { JobSettings.JobClockTimeLimitInMilliseconds: var t }:
                 Assert.That(t, Is.EqualTo(36000000u));
                 break;
             default:
@@ -631,14 +596,16 @@ public static partial class ProgramTests
             {
                 writer.WriteLine("TEST=TESTVAL");
                 writer.WriteLine("  TEST2 = TEST VAL2  ");
+                writer.WriteLine("  TEST3 =  ");
             }
 
             Assert.That(Program.ParseArgs(RealSystemInfo, [$"--env=\"{envVarsFile}\"", "test.exe"]) is RunAsCmdApp
             {
-                Environment: var env
+                JobSettings.Environment: var env
             } ? env : default, Is.EquivalentTo(new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) {
                 { "TEST", "TESTVAL" },
-                { "TEST2", "TEST VAL2" }
+                { "TEST2", "TEST VAL2" },
+                { "TEST3", "" }
             }));
 
             using (var writer = new StreamWriter(envVarsFile, false))
@@ -665,7 +632,7 @@ public static partial class ProgramTests
     {
         switch (Program.ParseArgs(RealSystemInfo, ["--enable-privilege=TEST1", "--enable-privilege=TEST2", "test.exe"]))
         {
-            case RunAsCmdApp { Privileges: var privs }:
+            case RunAsCmdApp { JobSettings.Privileges: var privs }:
                 Assert.That(privs, Is.EquivalentTo(new[] { "TEST1", "TEST2" }));
                 break;
             default:
@@ -676,7 +643,7 @@ public static partial class ProgramTests
         // legacy, undocumented behavior
         switch (Program.ParseArgs(RealSystemInfo, ["--enable-privileges=TEST1,TEST2", "test.exe"]))
         {
-            case RunAsCmdApp { Privileges: var privs }:
+            case RunAsCmdApp { JobSettings.Privileges: var privs }:
                 Assert.That(privs, Is.EquivalentTo(new[] { "TEST1", "TEST2" }));
                 break;
             default:
@@ -712,6 +679,39 @@ public static partial class ProgramTests
                 else { Assert.Fail($"Failed parsing of priority {name}"); }
             }
         }
+
+        Assert.That(Program.ParseArgs(RealSystemInfo, [$"--priority=invalid", "test.exe"]) is ShowHelpAndExit
+        {
+            ErrorMessage: var msg
+        } ? msg : null, Is.EqualTo("Requested value 'invalid' was not found."));
+    }
+
+    [Test]
+    public static void ParseArgsEfficiencyMode()
+    {
+        (string, EfficiencyMode)[] efficiencyModes = [
+            ("on", EfficiencyMode.On),
+            ("ON", EfficiencyMode.On),
+            ("Off", EfficiencyMode.Off),
+            ("auto", EfficiencyMode.Auto)
+        ];
+
+        foreach (var (v, em) in efficiencyModes)
+        {
+            if (Program.ParseArgs(RealSystemInfo, [$"--efficiency-mode={v}", "test.exe"]) is RunAsCmdApp
+                {
+                    JobSettings.EfficiencyMode: var efficiencyMode
+                })
+            {
+                Assert.That(efficiencyMode, Is.EqualTo(em));
+            }
+            else { Assert.Fail($"Failed parsing of efficiency mode {v}"); }
+        }
+
+        Assert.That(Program.ParseArgs(RealSystemInfo, [$"--efficiency-mode=invalid", "test.exe"]) is ShowHelpAndExit
+        {
+            ErrorMessage: var msg
+        } ? msg : null, Is.EqualTo("Requested value 'invalid' was not found."));
     }
 
     [Test]
@@ -746,14 +746,14 @@ public static partial class ProgramTests
             LaunchConfig: LaunchConfig.Default
         });
 
-        Assert.That(Program.ParseArgs(RealSystemInfo, ["-m=10M", "--freeze", "test.exe"]) is RunAsCmdApp
+        Assert.That(Program.ParseArgs(RealSystemInfo, ["--job-name=test", "-m=10M", "--freeze", "test.exe"]) is RunAsCmdApp
         {
             StartBehavior: StartBehavior.Freeze,
             ExitBehavior: ExitBehavior.WaitForJobCompletion,
             LaunchConfig: LaunchConfig.Default
         });
 
-        Assert.That(Program.ParseArgs(RealSystemInfo, ["-m=10M", "-q", "--nowait", "--thaw", "test.exe"]) is RunAsCmdApp
+        Assert.That(Program.ParseArgs(RealSystemInfo, ["--job-name=test", "-m=10M", "-q", "--nowait", "--thaw", "test.exe"]) is RunAsCmdApp
         {
             StartBehavior: StartBehavior.Thaw,
             ExitBehavior: ExitBehavior.DontWaitForJobCompletion,
@@ -761,10 +761,10 @@ public static partial class ProgramTests
         });
 
 
-        Assert.That(Program.ParseArgs(RealSystemInfo, ["-m=10M", "--nogui", "--nomonitor", "--terminate-job-on-exit", "test.exe"]) is RunAsCmdApp
+        Assert.That(Program.ParseArgs(RealSystemInfo, ["-m=10M", "--nogui", "--terminate-job-on-exit", "test.exe"]) is RunAsCmdApp
         {
             ExitBehavior: ExitBehavior.TerminateJobOnExit,
-            LaunchConfig: LaunchConfig.NoGui | LaunchConfig.NoMonitor
+            LaunchConfig: LaunchConfig.NoGui
         });
 
         Assert.That(Program.ParseArgs(RealSystemInfo, ["-m=10M", "--freeze", "--thaw", "test.exe"]) is ShowHelpAndExit
@@ -772,9 +772,24 @@ public static partial class ProgramTests
             ErrorMessage: "--thaw and --freeze cannot be set at the same time"
         });
 
+        Assert.That(Program.ParseArgs(RealSystemInfo, ["--freeze", "test.exe"]) is ShowHelpAndExit
+        {
+            ErrorMessage: "--job-name is required when using --thaw or --freeze"
+        });
+
+        Assert.That(Program.ParseArgs(RealSystemInfo, ["--thaw", "test.exe"]) is ShowHelpAndExit
+        {
+            ErrorMessage: "--job-name is required when using --thaw or --freeze"
+        });
+
         Assert.That(Program.ParseArgs(RealSystemInfo, ["-m=10M", "--terminate-job-on-exit", "--nowait", "test.exe"]) is ShowHelpAndExit
         {
             ErrorMessage: "--terminate-job-on-exit and --nowait cannot be used together"
+        });
+
+        Assert.That(Program.ParseArgs(RealSystemInfo, ["--job-name", "test", "--isolate", "test.exe"]) is ShowHelpAndExit
+        {
+            ErrorMessage: "--isolate is incompatible with --job-name - you need to use either one"
         });
     }
 }

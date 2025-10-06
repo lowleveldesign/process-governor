@@ -1,11 +1,13 @@
 ﻿using Microsoft.Win32.SafeHandles;
 using System.ComponentModel;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Windows.Win32.Foundation;
 
-namespace ProcessGovernor.Win32;
-static partial class Helpers
+using PInvokeWin32 = Windows.Win32.PInvoke;
+
+namespace ProcessGovernor.Library.Win32;
+
+internal static partial class Helpers
 {
     public static T CheckWin32Result<T>(T result)
     {
@@ -23,16 +25,45 @@ static partial class Helpers
                 WIN32_ERROR err when err == WIN32_ERROR.NO_ERROR => result,
                 WIN32_ERROR err => throw new Win32Exception((int)err),
                 WAIT_EVENT ev when ev != WAIT_EVENT.WAIT_FAILED => result,
-                NTSTATUS nt when nt.Value == 0 => result,
-                NTSTATUS nt => throw new Win32Exception(nt.Value),
+                NTSTATUS nt when nt == NTSTATUS.STATUS_SUCCESS => result,
+                NTSTATUS nt => throw new Win32Exception((int)PInvokeWin32.RtlNtStatusToDosError(nt)),
                 _ => throw new Win32Exception(lastError)
             };
         }
     }
 
-    public delegate int QueueApcThread(nint ThreadHandle, nint ApcRoutine, nint ApcArgument1, nint ApcArgument2, nint ApcArgument3);
+    public static HANDLE ToHANDLE(this SafeHandle h) => (HANDLE)h.DangerousGetHandle();
 
-    public static HANDLE ToWin32Handle(this SafeHandle h) => (HANDLE)h.DangerousGetHandle();
+    public delegate int QueueApcThread(nint ThreadHandle, nint ApcRoutine, nint ApcArgument1, nint ApcArgument2, nint ApcArgument3);
+}
+
+/* ** NT helper objects ** */
+
+public sealed class SafeHandleReference : IDisposable
+{
+    private readonly SafeHandle value;
+    private readonly bool mustRelease;
+    private bool disposedValue;
+
+    public SafeHandleReference(SafeHandle handle)
+    {
+        value = handle;
+        value.DangerousAddRef(ref mustRelease);
+    }
+
+    public SafeHandle Value => value;
+
+    public void Dispose()
+    {
+        if (!disposedValue)
+        {
+            if (mustRelease)
+            {
+                value.DangerousRelease();
+            }
+            disposedValue = true;
+        }
+    }
 }
 
 /* ** NT JOB API ** */
@@ -68,8 +99,8 @@ struct JOBOBJECT_FREEZE_INFORMATION
 [StructLayout(LayoutKind.Sequential)]
 public struct CLIENT_ID
 {
-    public IntPtr UniqueProcess;
-    public IntPtr UniqueThread;
+    public nint UniqueProcess;
+    public nint UniqueThread;
 }
 
 /* ** ** */
@@ -111,7 +142,7 @@ static partial class PInvoke
     );
 
     [LibraryImport("ntdll.dll")]
-    public static partial int NtQueueApcThread(
+    internal static partial int NtQueueApcThread(
          nint ThreadHandle,
          nint ApcRoutine,
          nint ApcArgument1,

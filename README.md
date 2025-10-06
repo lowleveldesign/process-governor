@@ -30,6 +30,7 @@ This application allows you to set constraints on Windows processes. It uses [a 
     - [Set additional environment variables for a process](#set-additional-environment-variables-for-a-process)
     - [Enable process privileges](#enable-process-privileges)
     - [Deep-freeze processes \(experimental\)](#deep-freeze-processes-experimental)
+- [Troubleshooting](#troubleshooting)
 - [Contributions](#contributions)
 - [Links](#links)
 
@@ -244,6 +245,21 @@ Keep in mind that in Windows, you can't add new privileges to the process token.
 
 You may use the --freeze and --thaw options to control execution of processes managed by procgov jobs. When launching a new process with the --freeze option, it will remain in a suspended state that occurs even earlier than when using the [CREATE_SUSPENDED flag](https://learn.microsoft.com/en-us/windows/win32/procthread/process-creation-flags). This means that even if there are missing imports, the process won't fail - instead, the main image will be loaded into memory, allowing for any necessary fixes to be made.
 
+Troubleshooting
+---------------
+
+If you encounter a problem with procgov, please download the [WPR profile](https://raw.githubusercontent.com/lowleveldesign/process-governor/refs/heads/master/procgov.wprp) and collect a basic ETW trace using it. You can do it by running the following commands in the admin command prompt:
+
+```sh
+wpr.exe -start procgov.wprp -filemode
+
+# reproduce the problem
+
+wpr.exe -stop c:\temp\procgov.etl
+```
+
+Then zip the etl file, create [a new issue](https://github.com/lowleveldesign/process-governor/issues), describe the problem you are getting, and attach the collected trace.
+
 Contributions
 -------------
 
@@ -258,4 +274,4 @@ Links
 
 - **2013.11.21** - [Set process memory limit with Process Governor](http://lowleveldesign.wordpress.com/2013/11/21/set-process-memory-limit-with-process-governor)
 - **2016.10.21** - [Releasing wtrace 1.0 and procgov 2.0](https://lowleveldesign.wordpress.com/2016/10/21/releasing-wtrace-1-0-and-procgov-2-0/)
-- **2019.01.31** - [Limit the execution time of a process tree on Windows](https://lowleveldesign.org/2019/01/31/limit-the-execution-time-of-a-process-tree-on-windows/)
+- **2019.01.31** - [Limit the execution time of a process tree on Windows](https://lowleveldesign.wordpress.com/2019/01/31/limit-the-execution-time-of-a-process-tree-on-windows/)

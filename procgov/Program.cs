@@ -1,29 +1,19 @@
-﻿using MessagePack;
-using MessagePack.Resolvers;
+﻿using ProcessGovernor.Library;
+using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Diagnostics.Tracing;
 using System.Globalization;
 using System.Numerics;
 using System.Reflection;
-using System.Runtime.CompilerServices;
-
-[assembly: InternalsVisibleTo("procgov-tests")]
 
 namespace ProcessGovernor;
 
-static partial class Program
+public static partial class Program
 {
     public static readonly TraceSource Logger = new("[procgov]", SourceLevels.Warning);
 
     public static readonly TimeSpan DefaultMaxMonitorIdleTime = TimeSpan.FromSeconds(5);
-
-    static Program()
-    {
-        // required to make MessagePack work with NativeAOT
-        StaticCompositeResolver.Instance.Register(GeneratedMessagePackResolver.Instance, StandardResolver.Instance);
-        MessagePackSerializer.DefaultOptions = MessagePackSerializerOptions.Standard.WithResolver(StaticCompositeResolver.Instance); ;
-    }
 
     public static async Task<int> Main(string[] args)
     {
@@ -31,13 +21,14 @@ static partial class Program
 
         Console.CancelKeyPress += (_, ev) => { ev.Cancel = true; cts.Cancel(); };
 
-        // we don't want any default trace listeners
-        Logger.Listeners.Clear();
-        // procgov ETW listener
-        Logger.Listeners.Add(new EtwTraceListener());
 #if DEBUG
-        Logger.Listeners.Add(new DefaultTraceListener());
+        TraceListener[] listeners = [new EtwTraceListener(), new DefaultTraceListener()];
+#else
+        TraceListener[] listeners = [new EtwTraceListener()];
 #endif
+        Logger.Listeners.Clear();
+        Logger.Listeners.AddRange(listeners);
+        ProcessGovernorLibraryApi.SetLibraryLoggerListeners(listeners);
 
         try
         {
@@ -80,31 +71,54 @@ static partial class Program
 
             OPTIONS:
 
-                   --job-name=             The job name that will be used to identify the Process Governor job in the system (auto-generated if not set).
+                   --job-name=             The job name that will be used to identify the Process Governor job 
+                                           in the system (auto-generated if not set).
                 -m|--maxmem=               Max committed memory usage in bytes (accepted suffixes: K, M, or G).
-                   --maxjobmem=            Max committed memory usage for all the processes in the job (accepted suffixes: K, M, or G).
-                   --maxws=                Max working set size in bytes (accepted suffixes: K, M, or G). Must be set with minws.
-                   --minws=                Min working set size in bytes (accepted suffixes: K, M, or G). Must be set with maxws.
+                   --maxjobmem=            Max committed memory usage for all the processes in the job
+                                           (accepted suffixes: K, M, or G).
+                   --maxws=                Max working set size in bytes (accepted suffixes: K, M, or G).
+                                           Must be set with minws.
+                   --minws=                Min working set size in bytes (accepted suffixes: K, M, or G).
+                                           Must be set with maxws.
                    --env=                  A text file with environment variables (each line in form: VAR=VAL).
-                -c|--cpu=                  If in hex (starts with 0x) it is treated as an affinity mask, otherwise it is a number of CPU cores assigned to your app. If you also provide the NUMA node, this setting will apply only to this node.",
-                -e|--cpurate=              The maximum CPU rate in % for the process. If you also set the affinity, the rate will apply only to the selected CPU cores. (Windows 8.1+)
-                -b|--bandwidth=            The maximum bandwidth (in bytes) for the process outgoing network traffic (accepted suffixes: K, M, or G). (Windows 10+)
+                -c|--cpu=                  If in hex (starts with 0x) it is treated as an affinity mask, otherwise
+                                           it is a number of CPU cores assigned to your app. If you also provide
+                                           the NUMA node, this setting will apply only to this node.
+                -e|--cpurate=              The maximum CPU rate in % for the process. If you also set the affinity,
+                                           the rate will apply only to the selected CPU cores. (Windows 8.1+)
+                -b|--bandwidth=            The maximum bandwidth (in bytes) for the process outgoing network traffic
+                                           (accepted suffixes: K, M, or G). (Windows 10+)
                 -r|--recursive             Apply limits to child processes too (will wait for all processes to finish).
                    --newconsole            Start the process in a new console window.
                    --nogui                 Hide Process Governor console window.
                 -p|--pid=                  Apply limits on an already running process (or processes if used multiple times)
-                -t|--timeout=              Kill the process (with -r, also all its children) if it does not finish within the specified time. Add suffix to define the time unit. Valid suffixes are: ms, s, m, h.
-                   --process-utime=        Kill the process (with -r, also applies to its children) if it exceeds the given user-mode execution time. Add suffix to define the time unit. Valid suffixes are: ms, s, m, h.
-                   --priority=             Sets the process priority class of monitored processes. Possible values: Idle, BelowNormal, Normal, AboveNormal, High, RealTime.
-                   --job-utime=            Kill the process (with -r, also all its children) if the total user-mode execution time exceed the specified value. Add suffix to define the time unit. Valid suffixes are: ms, s, m, h.
+                -t|--timeout=              Kill the process (with -r, also all its children) if it does not finish within 
+                                           the specified time. Add suffix to define the time unit. Valid suffixes are: 
+                                           ms, s, m, h.
+                   --process-utime=        Kill the process (with -r, also applies to its children) if it exceeds the given
+                                           user-mode execution time. Add suffix to define the time unit. Valid suffixes are:
+                                           ms, s, m, h.
+                   --priority=             Sets the process priority class of monitored processes. Possible values: Idle, 
+                                           BelowNormal, Normal, AboveNormal, High, RealTime.
+                   --efficiency-mode=      Sets or unsets the efficiency mode. Possible values: auto, on, off.
+                   --job-utime=            Kill the process (with -r, also all its children) if the total user-mode 
+                                           execution time exceed the specified value. Add suffix to define the time unit.
+                                           Valid suffixes are: ms, s, m, h.
+                   --max-process-count     The maximum number of processes in the job.
+                   --unset-limits          Unsets all the configured job limits.
 
                    --freeze                Freezes (suspends) the process or group of processes (EXPERIMENTAL).
                    --thaw                  Thaws (resumes) the process or group of processes (EXPERIMENTAL).
 
-                   --enable-privilege=     Enables the specified privileges in the remote process. You may specify multiple privileges by splitting them with commas, for example, 'SeDebugPrivilege,SeLockMemoryPrivilege'
+                   --enable-privilege=     Enables the specified privileges in the remote process. You may specify multiple 
+                                           privileges by splitting them with commas.
                    --terminate-job-on-exit Terminates the job (and all its processes) when you stop procgov with Ctrl + C.
 
                    --install               Install procgov as a service which monitors a specific process.
+                   --isolate               For installed processes, if the procgov service detects a process that should
+                                           be monitored, it should create a seperate job, and not add a new process to the
+                                           existing job created before for a process with the same executable (incompatible
+                                           with --job-name).
                    --service-path          The path where the service will be installed (C:\Program Files\ProcessGovernor)
                    --service-username      The username for the service account (default: NT AUTHORITY\\SYSTEM).
                    --service-password      The password for the service account (required for non-system accounts).
@@ -151,7 +165,7 @@ static partial class Program
             foreach (var processorGroup in numaNode.ProcessorGroups)
             {
                 var groupCpus = string.Join(',', CreateRanges([..cpuCores.Index().Where(
-                    ii => ii.Item.ProcessorGroup.Number == processorGroup.Number 
+                    ii => ii.Item.ProcessorGroup.Number == processorGroup.Number
                         && (ii.Item.ProcessorGroup.AffinityMask & processorGroup.AffinityMask) != 0).Select(ii => ii.Index)]).Select(
                     r => r.Start.Equals(r.End) ? $"{r.Start}" : $"{r.Start}-{r.End}"));
                 Console.WriteLine($"  Processor Group {processorGroup.Number}: {(processorGroup.AffinityMask):X16} (CPUs: {groupCpus})");
@@ -190,23 +204,22 @@ static partial class Program
     {
         Console.WriteLine("Process Governor v{0} - sets limits on processes",
             Assembly.GetExecutingAssembly()!.GetName()!.Version!.ToString());
-        Console.WriteLine("Copyright (C) 2024 Sebastian Solnica");
+        Console.WriteLine("Copyright (C) Sebastian Solnica");
         Console.WriteLine();
     }
 
-    internal static string GenerateNewJobName() => $"procgov-{Guid.NewGuid():D}";
-
-    internal static IExecutionMode ParseArgs(SystemInfo systemInfo, string[] rawArgs)
+    public static IExecutionMode ParseArgs(SystemInfo systemInfo, string[] rawArgs)
     {
         try
         {
             var parsedArgs = ParseRawArgs(["newconsole", "r", "recursive", "newconsole", "nogui", "install", "uninstall",
-                                "terminate-job-on-exit", "background", "service", "q", "quiet", "nowait", "v", "verbose",
-                                "nomonitor", "monitor", "uninstall-all" , "h", "?", "help", "freeze", "thaw"], rawArgs);
+                "terminate-job-on-exit", "background", "service", "q", "quiet", "nowait", "v", "verbose",
+                "monitor", "uninstall-all" , "h", "?", "help", "freeze", "thaw", "unset-limits"], rawArgs);
 
             if (parsedArgs.Remove("v") || parsedArgs.Remove("verbose"))
             {
                 Logger.Switch.Level = SourceLevels.Verbose;
+                ProcessGovernorLibraryApi.SetLibraryLoggerLevel(SourceLevels.Verbose);
             }
 
             if (parsedArgs.Count == 0)
@@ -223,23 +236,26 @@ static partial class Program
             var maxJobMemory = parsedArgs.Remove("maxjobmem", out v) ? ParseMemoryString(v[^1]) : 0;
             var maxWorkingSetSize = parsedArgs.Remove("maxws", out v) ? ParseMemoryString(v[^1]) : 0;
             var minWorkingSetSize = parsedArgs.Remove("minws", out v) ? ParseMemoryString(v[^1]) : 0;
-            var cpuAffinity = parsedArgs.Remove("c", out v) || parsedArgs.Remove("cpu", out v) ? ParseCpuAffinity(systemInfo, v) : null;
+            var cpuAffinity = parsedArgs.Remove("c", out v) || parsedArgs.Remove("cpu", out v) ?
+                (v is [var s] && int.TryParse(s, out var cpuCount) ? CalculateAffinityMaskFromCpuCount(cpuCount) :
+                    SystemInfoModule.ParseCpuAffinity(systemInfo, v)) : [];
             var cpuMaxRate = parsedArgs.Remove("e", out v) || parsedArgs.Remove("cpurate", out v) ? ParseCpuRate(v[^1]) : 0;
             var maxBandwidth = parsedArgs.Remove("b", out v) || parsedArgs.Remove("bandwidth", out v) ? ParseByteLength(v[^1]) : 0;
             var processUserTimeLimitInMilliseconds = parsedArgs.Remove("process-utime", out v) ? ParseTimeStringToMilliseconds(v[^1]) : 0;
             var jobUserTimeLimitInMilliseconds = parsedArgs.Remove("job-utime", out v) ? ParseTimeStringToMilliseconds(v[^1]) : 0;
             var clockTimeLimitInMilliseconds = parsedArgs.Remove("t", out v) || parsedArgs.Remove("timeout", out v) ? ParseTimeStringToMilliseconds(v[^1]) : 0;
             var propagateOnChildProcesses = parsedArgs.Remove("r") || parsedArgs.Remove("recursive");
-            var activeProcessLimit = 0u; // not yet available in command line
+            var activeProcessLimit = parsedArgs.Remove("max-process-count", out v) ? uint.Parse(v[^1]) : 0u;
             var requestedJobName = parsedArgs.Remove("job-name", out v) ? v[^1] : null;
             var priorityClass = parsedArgs.Remove("priority", out v) ? Enum.Parse<PriorityClass>(v[^1], ignoreCase: true) : PriorityClass.Undefined;
+            var efficiencyMode = parsedArgs.Remove("efficiency-mode", out v) ? Enum.Parse<EfficiencyMode>(v[^1], ignoreCase: true) : EfficiencyMode.Undefined;
+            var nowait = parsedArgs.Remove("nowait");
 
             // from: https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_cpu_rate_control_information
             // Set CpuRate to a percentage times 100. For example, to let the job use 20% of the CPU, set CpuRate to 2,000.
             cpuMaxRate *= 100;
 
-            Debug.Assert(cpuAffinity == null || cpuAffinity.Length > 0);
-            if (cpuAffinity != null && cpuMaxRate != 0)
+            if (cpuAffinity is not [] && cpuMaxRate != 0)
             {
 
                 // CPU rate is set for the whole system so includes all the logical CPUs. When 
@@ -249,45 +265,26 @@ static partial class Program
                 cpuMaxRate /= (uint)(systemInfo.CpuCores.Length / numberOfSelectedCores);
             }
 
-            JobSettings jobSettings = new(maxProcessMemory, maxJobMemory, maxWorkingSetSize, minWorkingSetSize,
-                cpuAffinity, cpuMaxRate, maxBandwidth, processUserTimeLimitInMilliseconds, jobUserTimeLimitInMilliseconds,
-                clockTimeLimitInMilliseconds, propagateOnChildProcesses, activeProcessLimit, priorityClass);
-
-            if (jobSettings.MaxWorkingSetSize != jobSettings.MinWorkingSetSize &&
-                Math.Min(jobSettings.MaxWorkingSetSize, jobSettings.MinWorkingSetSize) == 0)
+            if (maxWorkingSetSize != minWorkingSetSize &&
+                Math.Min(maxWorkingSetSize, minWorkingSetSize) == 0)
             {
                 throw new ArgumentException("minws and maxws must be set together and be greater than 0");
             }
 
-            LaunchConfig launchConfig = LaunchConfig.Default;
-
-            launchConfig |= parsedArgs.Remove("nogui") ? LaunchConfig.NoGui : 0;
-            launchConfig |= parsedArgs.Remove("q") || parsedArgs.Remove("quiet") ? LaunchConfig.Quiet : 0;
-            launchConfig |= parsedArgs.Remove("nomonitor") ? LaunchConfig.NoMonitor : 0;
-
-            var nowait = parsedArgs.Remove("nowait");
-
-            var startBehavior = parsedArgs.Remove("thaw") ? StartBehavior.Thaw :
-                (parsedArgs.Remove("freeze") ? StartBehavior.Freeze : StartBehavior.None);
-            if (parsedArgs.ContainsKey("freeze") || parsedArgs.ContainsKey("thaw"))
+            if (nowait && clockTimeLimitInMilliseconds > 0)
             {
-                throw new ArgumentException("--thaw and --freeze cannot be set at the same time");
+                throw new ArgumentException("--nowait cannot be used with --timeout");
             }
 
-            var exitBehavior = parsedArgs.Remove("terminate-job-on-exit") switch
+            bool runIsolated = parsedArgs.Remove("isolate");
+            if (runIsolated && requestedJobName is not null)
             {
-                true when nowait =>
-                    throw new ArgumentException("--terminate-job-on-exit and --nowait cannot be used together"),
-                true => ExitBehavior.TerminateJobOnExit,
-                false when nowait && jobSettings.ClockTimeLimitInMilliseconds > 0 =>
-                    throw new ArgumentException("--nowait cannot be used with --timeout"),
-                false when nowait => ExitBehavior.DontWaitForJobCompletion,
-                _ => ExitBehavior.WaitForJobCompletion
-            };
+                throw new ArgumentException("--isolate is incompatible with --job-name - you need to use either one");
+            }
 
             var environment = parsedArgs.Remove("env", out v) ? GetCustomEnvironmentVariables(v[^1]) : [];
 
-            var privileges = parsedArgs.Remove("enable-privilege", out v) ? v : [];
+            ImmutableArray<string> privileges = parsedArgs.Remove("enable-privilege", out v) ? [.. v] : [];
             if (parsedArgs.Remove("enable-privileges", out v)) // legacy name of this argument
             {
                 privileges = [.. privileges, .. v];
@@ -295,6 +292,39 @@ static partial class Program
             // recommended way is to use the parameter multiple times, but for legacy reasons
             // we also support comma-separated list
             privileges = [.. privileges.SelectMany(p => p.Split(',', StringSplitOptions.RemoveEmptyEntries))];
+
+            // jobSettings may be null when user does not want to change the existing limits
+            JobSettings? jobSettings = new JobSettings(maxProcessMemory, maxJobMemory, maxWorkingSetSize, minWorkingSetSize,
+                cpuAffinity, cpuMaxRate, maxBandwidth, processUserTimeLimitInMilliseconds, jobUserTimeLimitInMilliseconds,
+                clockTimeLimitInMilliseconds, propagateOnChildProcesses, activeProcessLimit, priorityClass,
+                GetRunMode(requestedJobName, runIsolated), privileges, environment, efficiencyMode) is var j
+                && j.IsEmpty() && !parsedArgs.Remove("unset-limits") ? null : j;
+
+            LaunchConfig launchConfig = LaunchConfig.Default;
+
+            launchConfig |= parsedArgs.Remove("nogui") ? LaunchConfig.NoGui : 0;
+            launchConfig |= parsedArgs.Remove("q") || parsedArgs.Remove("quiet") ? LaunchConfig.Quiet : 0;
+
+            var startBehavior = (parsedArgs.Remove("thaw"), parsedArgs.Remove("freeze")) switch
+            {
+                (true, true) => throw new ArgumentException("--thaw and --freeze cannot be set at the same time"),
+                (var thaw, var freeze) when (thaw || freeze) && requestedJobName is null =>
+                    throw new ArgumentException("--job-name is required when using --thaw or --freeze"),
+                (true, false) => StartBehavior.Thaw,
+                (false, true) => StartBehavior.Freeze,
+                _ => StartBehavior.None
+            };
+
+            var exitBehavior = parsedArgs.Remove("terminate-job-on-exit") switch
+            {
+                true when nowait =>
+                    throw new ArgumentException("--terminate-job-on-exit and --nowait cannot be used together"),
+                true => ExitBehavior.TerminateJobOnExit,
+                false when nowait && jobSettings?.JobClockTimeLimitInMilliseconds > 0 =>
+                    throw new ArgumentException("--nowait cannot be used with --timeout"),
+                false when nowait => ExitBehavior.DontWaitForJobCompletion,
+                _ => ExitBehavior.WaitForJobCompletion
+            };
 
             var newConsole = parsedArgs.Remove("newconsole");
 
@@ -313,6 +343,7 @@ static partial class Program
             var runAsMonitor = parsedArgs.Remove("monitor");
             var runAsService = parsedArgs.Remove("service");
             var install = parsedArgs.Remove("install");
+
             var serviceUserName = install switch
             {
                 true => parsedArgs.Remove("service-username", out v) && v is [.., var username] ? username : "NT AUTHORITY\\SYSTEM",
@@ -337,17 +368,14 @@ static partial class Program
             {
                 ([], [], true, false, false, false, false) => new RunAsMonitor(DefaultMaxMonitorIdleTime, launchConfig.HasFlag(LaunchConfig.NoGui)),
                 ([], [], false, true, false, false, false) => new RunAsService(),
-                ([var executable], [], false, false, true, false, false) => new SetupProcessGovernance(
-                    requestedJobName, jobSettings, environment, privileges, executable, serviceInstallPath,
-                    serviceUserName, serviceUserPassword),
+                ([var executable], [], false, false, true, false, false) when jobSettings is not null =>
+                    new SetupProcessGovernance(jobSettings, executable, serviceInstallPath, serviceUserName, serviceUserPassword),
                 ([var executable], [], false, false, false, true, false) => new RemoveProcessGovernance(executable, serviceInstallPath),
                 ([], [], false, false, false, false, true) => new RemoveAllProcessGovernance(serviceInstallPath),
                 (_, [], false, false, false, false, false) when procargs.Count > 0 =>
-                    new RunAsCmdApp(requestedJobName, jobSettings, new LaunchProcess(procargs, newConsole),
-                        environment, privileges, launchConfig, startBehavior, exitBehavior),
+                    new RunAsCmdApp(jobSettings, new LaunchProcess(procargs, newConsole), launchConfig, startBehavior, exitBehavior),
                 ([], _, false, false, false, false, false) when pids.Length > 0 =>
-                    new RunAsCmdApp(requestedJobName, jobSettings, new AttachToProcess(pids), environment, privileges,
-                        launchConfig, startBehavior, exitBehavior),
+                    new RunAsCmdApp(jobSettings, new AttachToProcess(pids), launchConfig, startBehavior, exitBehavior),
                 _ => throw new ArgumentException("invalid arguments provided")
             };
         }
@@ -360,145 +388,36 @@ static partial class Program
             return new ShowHelpAndExit(ex.Message);
         }
 
-        static GroupAffinity[] ParseCpuAffinity(SystemInfo systemInfo, List<string> cpuAffinityArgs)
+        static IRunMode GetRunMode(string? jobName, bool runIsolated) => jobName is null ?
+            (runIsolated ? RunModes.IsolatedJob : RunModes.SharedJob) : RunModes.NamedJob(jobName);
+
+        ImmutableArray<GroupAffinity> CalculateAffinityMaskFromCpuCount(int cpuCount)
         {
-            if (cpuAffinityArgs is [var s] && int.TryParse(s, out var cpuCount))
+            if (systemInfo.CpuCores.Length < cpuCount)
             {
-                return CalculateAffinityMaskFromCpuCount(cpuCount);
+                throw new ArgumentException($"you can't set affinity to more than {systemInfo.CpuCores.Length} CPU cores");
             }
 
-            Debug.Assert(systemInfo.NumaNodes.Length > 0 &&
-                systemInfo.NumaNodes[0].ProcessorGroups.Length > 0);
-            var defaultProcessorGroup = systemInfo.NumaNodes[0].ProcessorGroups[0];
-
-            Dictionary<ushort, nuint> affinities = [];
-
-            foreach (var cpuAffinityArg in cpuAffinityArgs)
+            List<GroupAffinity> jobCpuAffinity = [];
+            for (int i = 0; i < systemInfo.ProcessorGroups.Length && cpuCount > 0; i++)
             {
-                switch (cpuAffinityArg.Split(':'))
+                var group = systemInfo.ProcessorGroups[i];
+                int coresNumber = BitOperations.PopCount(group.AffinityMask);
+                if (cpuCount > coresNumber)
                 {
-                    case [string aff] when TryFindProcessorGroup(aff, out var processorGroup):
-                        affinities[processorGroup.Number] = processorGroup.AffinityMask;
-                        break;
-                    case [string aff] when TryFindNumaNode(aff, out var numaNode):
-                        foreach (var processorGroup in numaNode.ProcessorGroups)
-                        {
-                            UpdateGroupAffinity(processorGroup.Number, processorGroup.AffinityMask);
-                        }
-                        break;
-                    case [string aff] when TryParseAffinity(aff, out var groupAffinity):
-                        UpdateGroupAffinity(defaultProcessorGroup.Number, groupAffinity);
-                        break;
-                    case [string numa, string group] when TryFindNumaNode(numa, out var numaNode)
-                        && TryFindProcessorGroup(group, out var processorGroup):
-                        if (numaNode.ProcessorGroups.FirstOrDefault(g => g.Number == processorGroup.Number) is { } numaProcessorGroup)
-                        {
-                            UpdateGroupAffinity(processorGroup.Number, numaProcessorGroup.AffinityMask);
-                        }
-                        else
-                        {
-                            throw new ArgumentException(
-                                $"processor group {processorGroup.Number} does not belong to NUMA node {numaNode.Number}");
-                        }
-                        break;
-                    case [string group, string aff] when TryFindProcessorGroup(group, out var processorGroup)
-                        && TryParseAffinity(aff, out var cpuAffinity):
-                        UpdateGroupAffinity(processorGroup.Number, processorGroup.AffinityMask & cpuAffinity);
-                        break;
-                    case [string numa, string group, string aff] when TryFindNumaNode(numa, out var numaNode)
-                        && TryFindProcessorGroup(group, out var processorGroup) && TryParseAffinity(aff, out var cpuAffinity):
-                        if (!numaNode.ProcessorGroups.Any(g => g.Number == processorGroup.Number))
-                        {
-                            throw new ArgumentException(
-                                $"processor group {processorGroup.Number} does not belong to NUMA node {numaNode.Number}");
-                        }
-                        UpdateGroupAffinity(processorGroup.Number, processorGroup.AffinityMask & cpuAffinity);
-                        break;
-                    default:
-                        throw new ArgumentException($"invalid affinity string: '{cpuAffinityArg}'");
-                }
-                ;
-            }
-
-            return [.. affinities.Select(kv => new GroupAffinity(kv.Key, kv.Value))];
-
-
-            void UpdateGroupAffinity(ushort groupNumber, nuint affinity)
-            {
-                if (affinities.TryGetValue(groupNumber, out var savedAffinity))
-                {
-                    affinities[groupNumber] = savedAffinity | affinity;
+                    jobCpuAffinity.Add(new(group.Number, group.AffinityMask));
+                    cpuCount -= coresNumber;
                 }
                 else
                 {
-                    affinities.Add(groupNumber, affinity);
+                    jobCpuAffinity.Add(new(group.Number, group.AffinityMask >> (coresNumber - cpuCount)));
+                    cpuCount = 0;
                 }
             }
-
-            bool TryFindNumaNode(string numaArg, [MaybeNullWhen(false)] out NumaNode numa)
-            {
-                if (numaArg.Length > 0 && (numaArg[0] == 'n' || numaArg[0] == 'N'))
-                {
-                    var number = uint.Parse(numaArg.AsSpan(1));
-                    if (systemInfo.NumaNodes.FirstOrDefault(n => n.Number == number) is { } n)
-                    {
-                        numa = n;
-                        return true;
-                    }
-                }
-                numa = null;
-                return false;
-            }
-
-            bool TryFindProcessorGroup(string groupArg, [MaybeNullWhen(false)] out ProcessorGroup group)
-            {
-                if (groupArg.Length > 0 && (groupArg[0] == 'g' || groupArg[0] == 'G'))
-                {
-                    var number = ushort.Parse(groupArg.AsSpan(1));
-                    if (systemInfo.ProcessorGroups.FirstOrDefault(g => g.Number == number) is { } g)
-                    {
-                        group = g;
-                        return true;
-                    }
-                }
-                group = null;
-                return false;
-            }
-
-            static bool TryParseAffinity(string s, out nuint affinity)
-            {
-                return nuint.TryParse(s.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ?
-                    s[2..] : s, NumberStyles.AllowHexSpecifier, null, out affinity);
-            }
-
-            GroupAffinity[] CalculateAffinityMaskFromCpuCount(int cpuCount)
-            {
-                if (systemInfo.CpuCores.Length < cpuCount)
-                {
-                    throw new ArgumentException($"you can't set affinity to more than {systemInfo.CpuCores.Length} CPU cores");
-                }
-
-                List<GroupAffinity> jobCpuAffinity = [];
-                for (int i = 0; i < systemInfo.ProcessorGroups.Length && cpuCount > 0; i++)
-                {
-                    var group = systemInfo.ProcessorGroups[i];
-                    int coresNumber = BitOperations.PopCount(group.AffinityMask);
-                    if (cpuCount > coresNumber)
-                    {
-                        jobCpuAffinity.Add(new(group.Number, group.AffinityMask));
-                        cpuCount -= coresNumber;
-                    }
-                    else
-                    {
-                        jobCpuAffinity.Add(new(group.Number, group.AffinityMask >> (coresNumber - cpuCount)));
-                        cpuCount = 0;
-                    }
-                }
-                return [.. jobCpuAffinity];
-            }
+            return [.. jobCpuAffinity];
         }
 
-        static Dictionary<string, string> GetCustomEnvironmentVariables(string file)
+        static ImmutableDictionary<string, string> GetCustomEnvironmentVariables(string file)
         {
             file = file.Trim('"');
             if (!File.Exists(file))
@@ -530,7 +449,7 @@ static partial class Program
                     throw new ArgumentException($"the environment file contains invalid data (line: {linenum})");
                 }
 
-                return envVars;
+                return [.. envVars];
             }
             catch (IOException ex)
             {
@@ -664,75 +583,114 @@ static partial class Program
         }
     }
 
-    static void ShowLimits(JobSettings session)
+    static void ShowLimits(JobSettings? session)
     {
-        const uint ONE_MB = 1_048_576;
+        if (session is null)
+        {
+            Console.WriteLine("Configured job limits will not be modified.");
+        }
+        else if (session.IsEmpty())
+        {
+            Console.WriteLine("All configured job limits will be unset.");
+        }
+        else
+        {
+            const uint ONE_MB = 1_048_576;
 
-        if (session.CpuAffinity is { } cpuAffinity && cpuAffinity.Length > 0)
-        {
-            Console.WriteLine($"CPU groups and affinity masks:");
-            foreach (var (group, affinity) in cpuAffinity)
+            if (session.CpuAffinity.Length > 0)
             {
-                Console.WriteLine($"  {group}:{affinity:X16}");
+                Console.WriteLine($"CPU groups and affinity masks:");
+                foreach (var (group, affinity) in session.CpuAffinity)
+                {
+                    Console.WriteLine($"  {group}:{affinity:X16}");
+                }
             }
-        }
-        if (session.CpuMaxRate > 0)
-        {
-            Console.WriteLine($"Max CPU rate:                               {session.CpuMaxRate / 100.0:0.00}%");
-            if (session.CpuAffinity != null)
+            if (session.CpuMaxRate > 0)
             {
-                Console.WriteLine("(NOTE: the CPU rate was adjusted to the CPU affinity settings)");
+                Console.WriteLine($"Max CPU rate:                               {session.CpuMaxRate / 100.0:0.##}%");
+                if (session.CpuAffinity is not [])
+                {
+                    Console.WriteLine("(NOTE: the CPU rate was adjusted to the CPU affinity settings)");
+                }
             }
-        }
-        if (session.MaxBandwidth > 0)
-        {
-            Console.WriteLine($"Max bandwidth (B):                          {(session.MaxBandwidth):#,0}");
-        }
-        if (session.MaxProcessMemory > 0)
-        {
-            Console.WriteLine($"Maximum committed memory (MB):              {(session.MaxProcessMemory / ONE_MB):0,0}");
-        }
-        if (session.MaxJobMemory > 0)
-        {
-            Console.WriteLine($"Maximum job committed memory (MB):          {(session.MaxJobMemory / ONE_MB):0,0}");
-        }
-        if (session.MinWorkingSetSize > 0)
-        {
-            Debug.Assert(session.MaxWorkingSetSize > 0);
-            Console.WriteLine($"Minimum WS memory (MB):                     {(session.MinWorkingSetSize / ONE_MB):0,0}");
-        }
-        if (session.MaxWorkingSetSize > 0)
-        {
-            Debug.Assert(session.MinWorkingSetSize > 0);
-            Console.WriteLine($"Maximum WS memory (MB):                     {(session.MaxWorkingSetSize / ONE_MB):0,0}");
-        }
-        if (session.ProcessUserTimeLimitInMilliseconds > 0)
-        {
-            Console.WriteLine($"Process user-time execution limit (ms):     {session.ProcessUserTimeLimitInMilliseconds:0,0}");
-        }
-        if (session.JobUserTimeLimitInMilliseconds > 0)
-        {
-            Console.WriteLine($"Job user-time execution limit (ms):         {session.JobUserTimeLimitInMilliseconds:0,0}");
-        }
-        if (session.ClockTimeLimitInMilliseconds > 0)
-        {
-            Console.WriteLine($"Clock-time execution limit (ms):            {session.ClockTimeLimitInMilliseconds:0,0}");
-        }
-        if (session.PropagateOnChildProcesses)
-        {
-            Console.WriteLine();
-            Console.WriteLine("All configured limits will also apply to the child processes.");
+            if (session.MaxBandwidth > 0)
+            {
+                Console.WriteLine($"Max bandwidth (B):                          {(session.MaxBandwidth):#,0}");
+            }
+            if (session.MaxProcessMemory > 0)
+            {
+                Console.WriteLine($"Maximum committed memory (MB):              {(session.MaxProcessMemory / ONE_MB):0,0}");
+            }
+            if (session.MaxJobMemory > 0)
+            {
+                Console.WriteLine($"Maximum job committed memory (MB):          {(session.MaxJobMemory / ONE_MB):0,0}");
+            }
+            if (session.MinWorkingSetSize > 0)
+            {
+                Debug.Assert(session.MaxWorkingSetSize > 0);
+                Console.WriteLine($"Minimum WS memory (MB):                     {(session.MinWorkingSetSize / ONE_MB):0,0}");
+            }
+            if (session.MaxWorkingSetSize > 0)
+            {
+                Debug.Assert(session.MinWorkingSetSize > 0);
+                Console.WriteLine($"Maximum WS memory (MB):                     {(session.MaxWorkingSetSize / ONE_MB):0,0}");
+            }
+            if (session.ProcessUserTimeLimitInMilliseconds > 0)
+            {
+                Console.WriteLine($"Process user-time execution limit (ms):     {session.ProcessUserTimeLimitInMilliseconds:0,0}");
+            }
+            if (session.JobUserTimeLimitInMilliseconds > 0)
+            {
+                Console.WriteLine($"Job user-time execution limit (ms):         {session.JobUserTimeLimitInMilliseconds:0,0}");
+            }
+            if (session.JobClockTimeLimitInMilliseconds > 0)
+            {
+                Console.WriteLine($"Clock-time execution limit (ms):            {session.JobClockTimeLimitInMilliseconds:0,0}");
+            }
+            if (session.PropagateOnChildProcesses)
+            {
+                Console.WriteLine();
+                Console.WriteLine("All configured limits will also apply to the child processes.");
+            }
         }
         Console.WriteLine();
     }
 
     sealed class EtwTraceListener : TraceListener
     {
+        public override void TraceEvent(TraceEventCache? eventCache, string source, TraceEventType eventType, int id, string? message)
+        {
+            if (message is not null)
+            {
+                switch (eventType)
+                {
+                    case TraceEventType.Critical:
+                    case TraceEventType.Error:
+                        ProcgovEventSource.Instance.LogError(message);
+                        break;
+                    case TraceEventType.Warning:
+                        ProcgovEventSource.Instance.LogWarning(message);
+                        break;
+                    case TraceEventType.Verbose:
+                        ProcgovEventSource.Instance.LogVerbose(message);
+                        break;
+                    default:
+                        ProcgovEventSource.Instance.LogInfo(message);
+                        break;
+                }
+            }
+        }
+
+        public override void TraceEvent(TraceEventCache? eventCache, string source, TraceEventType eventType, int id, [StringSyntax("CompositeFormat")] string? format, params object?[]? args)
+        {
+            TraceEvent(eventCache, source, eventType, id, args is not null ? string.Format(CultureInfo.InvariantCulture, format!, args) : format);
+        }
+
         public override void Write(string? message)
         {
             if (message is not null)
             {
-                ProcgovEventSource.Instance.Log(message);
+                ProcgovEventSource.Instance.LogInfo(message);
             }
         }
 
@@ -750,6 +708,15 @@ class ProcgovEventSource : EventSource
 
     private ProcgovEventSource() { }
 
-    [Event(1, Message = "{0}", Level = EventLevel.Informational, Keywords = EventKeywords.None)]
-    public void Log(string message) => WriteEvent(1, message);
+    [Event(1, Message = "{0}", Level = EventLevel.Verbose, Keywords = EventKeywords.None)]
+    public void LogVerbose(string message) => WriteEvent(1, message);
+
+    [Event(2, Message = "{0}", Level = EventLevel.Informational, Keywords = EventKeywords.None)]
+    public void LogInfo(string message) => WriteEvent(2, message);
+
+    [Event(3, Message = "{0}", Level = EventLevel.Warning, Keywords = EventKeywords.None)]
+    public void LogWarning(string message) => WriteEvent(3, message);
+
+    [Event(4, Message = "{0}", Level = EventLevel.Error, Keywords = EventKeywords.None)]
+    public void LogError(string message) => WriteEvent(4, message);
 }

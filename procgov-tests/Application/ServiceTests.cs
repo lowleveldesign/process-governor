@@ -1,10 +1,15 @@
-﻿using System;
+﻿using Microsoft.Win32.SafeHandles;
+using ProcessGovernor.Library;
+using System;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Pipes;
 using System.Security.Principal;
 using System.ServiceProcess;
 using System.Threading;
 using System.Threading.Tasks;
+using Windows.Win32;
+using ProcessGovernorService = ProcessGovernor.Program.ProcessGovernorService;
 
 namespace ProcessGovernor.Tests.Application;
 
@@ -13,6 +18,11 @@ public static class ServiceTests
     // Tests are not using NativeAOT so copying procgov.exe is not enough to install the service. We will
     // instead use the BaseDirectory and this way skip copying.
     static readonly string ServicePath = Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory);
+
+    static ServiceTests()
+    {
+        SharedApi.InitializeTestContext();
+    }
 
     [Test]
     public static async Task ServiceSetupAndRemoval()
@@ -43,7 +53,7 @@ public static class ServiceTests
                 TestContext.Out.WriteLine(await procgov.StandardOutput.ReadToEndAsync(cts.Token));
             }
 
-            Assert.That(WindowsServiceModule.IsServiceInstalled(Program.ServiceName));
+            Assert.That(ProcessGovernorService.IsServiceInstalled(Program.ServiceName));
 
             using (var serviceControl = new ServiceController(Program.ServiceName))
             {
@@ -80,11 +90,11 @@ public static class ServiceTests
 
             await Task.Delay(2000, cts.Token);
 
-            Assert.That(WindowsServiceModule.IsServiceInstalled(Program.ServiceName), Is.False);
+            Assert.That(ProcessGovernorService.IsServiceInstalled(Program.ServiceName), Is.False);
         }
         finally
         {
-            if (WindowsServiceModule.IsServiceInstalled(Program.ServiceName))
+            if (ProcessGovernorService.IsServiceInstalled(Program.ServiceName))
             {
                 await Process.Start(procgovExecutablePath, $"--uninstall-all --service-path \"{ServicePath}\"").WaitForExitAsync();
             }
@@ -99,8 +109,6 @@ public static class ServiceTests
             Assert.Ignore("This test requires elevated privileges");
         }
 
-        ProcessGovernorTestContext.Initialize();
-
         const string monitoredExecutablePath = "winver.exe";
 
         using var cts = new CancellationTokenSource(90000);
@@ -109,7 +117,8 @@ public static class ServiceTests
 
         try
         {
-            var jobName = Program.GenerateNewJobName();
+            var jobName = Guid.NewGuid().ToString();
+            var jobId = new RunningJobId(RunModes.NamedJob(jobName), new(jobName));
             var psi = new ProcessStartInfo(procgovExecutablePath)
             {
                 Arguments = $"--install --job-name=\"{jobName}\" -c 0x1 --service-path \"{ServicePath}\" {monitoredExecutablePath}",
@@ -135,15 +144,16 @@ public static class ServiceTests
                 // the pipe name will be the one from the system service
                 var localSystemIdentifier = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
                 var pipeName = $"procgov-{localSystemIdentifier.Value}_elevated";
-                var job = await SharedApi.TryGetJobDataFromMonitor(pipeName, (uint)monitoredProcess.Id, cts.Token);
-                Assert.That(job, Is.Not.Null);
 
-                Assert.Multiple(() =>
+                using (var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous))
                 {
-                    var (receivedJobName, receivedJobSettings) = job.Value;
-                    Assert.That(receivedJobName, Is.EqualTo(jobName));
-                    Assert.That(receivedJobSettings, Is.EqualTo(new JobSettings(cpuAffinity: [new(defaultGroup.Number, 0x1)])));
-                });
+                    await pipe.ConnectAsync(cts.Token);
+                    Assert.That(await SharedApi.GetJobIdFromMonitor(pipe, (uint)monitoredProcess.Id, cts.Token), 
+                        Is.EqualTo(jobId));
+                }
+
+                // we might not have enough rights to query the job settings, so we just check if process is in a job
+                Assert.That(Win32JobModule.IsProcessInJob(monitoredProcess.SafeHandle, new SafeFileHandle()));
             }
             finally
             {
@@ -162,6 +172,6 @@ public static class ServiceTests
 
         await Task.Delay(2000, cts.Token);
 
-        Assert.That(WindowsServiceModule.IsServiceInstalled(Program.ServiceName), Is.False);
+        Assert.That(ProcessGovernorService.IsServiceInstalled(Program.ServiceName), Is.False);
     }
 }

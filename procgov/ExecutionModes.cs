@@ -1,48 +1,45 @@
-﻿namespace ProcessGovernor;
+﻿using ProcessGovernor.Library;
+using System.Collections.Immutable;
 
-enum StartBehavior { Freeze, Thaw, None };
+namespace ProcessGovernor;
 
-enum ExitBehavior { WaitForJobCompletion, DontWaitForJobCompletion, TerminateJobOnExit };
+public enum StartBehavior { Freeze, Thaw, None };
+
+public enum ExitBehavior { WaitForJobCompletion, DontWaitForJobCompletion, TerminateJobOnExit };
 
 [Flags]
-enum LaunchConfig { Default = 0, NoGui = 1, Quiet = 2, NoMonitor = 4 }
+public enum LaunchConfig { Default = 0, NoGui = 1, Quiet = 2 }
 
-internal interface IJobTarget;
+public interface IJobTarget;
 
-record LaunchProcess(List<string> Procargs, bool NewConsole) : IJobTarget;
+public record LaunchProcess(List<string> Procargs, bool NewConsole) : IJobTarget;
 
-record AttachToProcess(uint[] Pids) : IJobTarget;
+public record AttachToProcess(uint[] Pids) : IJobTarget;
 
-internal interface IExecutionMode;
+public interface IExecutionMode;
 
-record ShowHelpAndExit(string ErrorMessage) : IExecutionMode;
+public record ShowHelpAndExit(string ErrorMessage) : IExecutionMode;
 
-record ShowSystemInfoAndExit() : IExecutionMode;
+public record ShowSystemInfoAndExit() : IExecutionMode;
 
-record RunAsCmdApp(
-    string? JobName,
-    JobSettings JobSettings,
+public record RunAsCmdApp(
+    JobSettings? JobSettings, // when not null we always update the job settings (even if empty)
     IJobTarget JobTarget,
-    Dictionary<string, string> Environment,
-    List<string> Privileges,
     LaunchConfig LaunchConfig,
     StartBehavior StartBehavior,
     ExitBehavior ExitBehavior) : IExecutionMode;
 
-record RunAsMonitor(TimeSpan MaxMonitorIdleTime, bool NoGui) : IExecutionMode;
+public record RunAsMonitor(TimeSpan MaxMonitorIdleTime, bool NoGui) : IExecutionMode;
 
-record RunAsService : IExecutionMode;
+public record RunAsService : IExecutionMode;
 
-record SetupProcessGovernance(
-    string? JobName,
+public record SetupProcessGovernance(
     JobSettings JobSettings,
-    Dictionary<string, string> Environment,
-    List<string> Privileges,
     string ExecutablePath,
     string ServiceInstallPath,
     string ServiceUserName,
     string? ServiceUserPassword) : IExecutionMode;
 
-record RemoveProcessGovernance(string ExecutablePath, string ServiceInstallPath) : IExecutionMode;
+public record RemoveProcessGovernance(string ExecutablePath, string ServiceInstallPath) : IExecutionMode;
 
-record RemoveAllProcessGovernance(string ServiceInstallPath) : IExecutionMode;
+public record RemoveAllProcessGovernance(string ServiceInstallPath) : IExecutionMode;
