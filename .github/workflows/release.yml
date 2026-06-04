@@ -15,7 +15,7 @@ jobs:
 
     - uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
       with:
-        dotnet-version: '9.0.x' # SDK Version to use.
+        dotnet-version: '10.0.x' # SDK Version to use.
 
     - run: |
         Invoke-WebRequest -OutFile Update-AssemblyInfoVersionFiles.ps1 https://gist.githubusercontent.com/lowleveldesign/663de4e0d5a071f938e6f7c82d7ca9a0/raw/Update-AssemblyInfoVersionFiles.ps1
@@ -25,24 +25,28 @@ jobs:
     - run: dotnet test -c release --filter "FullyQualifiedName~ProcessGovernor.Tests.Code.ProgramTests.ParseArgs"
       working-directory: ./procgov-tests
 
-    - run: dotnet publish -c release -r win-x64
+    - run: dotnet publish -c release -r win-x64 -o out
       working-directory: ./procgov
 
     - name: Copy artifacts
       run: |
         New-Item -Type Directory -Path artifacts
-        Copy-Item -Path "procgov/bin/release/net9.0-windows/win-x64/publish/procgov.exe" -Destination "artifacts/procgov.exe"
-        Copy-Item -Path "procgov/bin/release/net9.0-windows/win-x64/publish/procgov.pdb" -Destination "artifacts/procgov.pdb"
+        Copy-Item -Path "procgov/out/procgov.exe" -Destination "artifacts/procgov.exe"
+        Copy-Item -Path "procgov/out/procgov.pdb" -Destination "artifacts/procgov.pdb"
+        Copy-Item -Path "procgov/out/procgov-lib.pdb" -Destination "artifacts/procgov-lib.pdb"
 
     - name: Zip binaries
       run: |
-        Compress-Archive -Path "artifacts/*.exe", "artifacts/*.pdb" -DestinationPath "procgov.zip"
+        Compress-Archive -Path "artifacts/procgov.exe" -DestinationPath "procgov.zip"
 
-    - uses: marvinpinto/action-automatic-releases@latest
+    - uses: marvinpinto/action-automatic-releases@d68defdd11f9dcc7f52f35c1b7c236ee7513bcc1
       with:
         repo_token: "${{ secrets.WINGET_GH_TOKEN }}"
         prerelease: true
-        files: procgov.zip
+        files: |
+          procgov.zip
+          artifacts/*.pdb
+          artifacts/*.exe
 
     - name: Publish to winget
       env:
@@ -52,7 +56,6 @@ jobs:
     - name: Copy the binary to Chocolatey path
       run: |
           Copy-Item artifacts\procgov.exe .choco\tools
-          Copy-Item artifacts\procgov.pdb .choco\tools
 
     - run: |
         Invoke-WebRequest -OutFile Print-FileHashes.ps1 https://gist.githubusercontent.com/lowleveldesign/f1afd42662ee8dabe07cf8cbfe25e6a1/raw/Print-FileHashes.ps1
@@ -68,3 +71,8 @@ jobs:
       env:
         CHOCO_KEY: ${{ secrets.CHOCO_KEY }}
       working-directory: .choco
+
+    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: procgov
+        path: artifacts/*

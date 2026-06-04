@@ -27,12 +27,11 @@ This application allows you to set constraints on Windows processes. It uses [a 
     - [Limit the user-mode execution time](#limit-the-user-mode-execution-time)
 - [Other options](#other-options)
     - [Set the priority class](#set-the-priority-class)
+    - [Set the efficiency mode](#set-the-efficiency-mode)
     - [Set additional environment variables for a process](#set-additional-environment-variables-for-a-process)
     - [Enable process privileges](#enable-process-privileges)
     - [Deep-freeze processes \(experimental\)](#deep-freeze-processes-experimental)
-- [Troubleshooting](#troubleshooting)
-- [Contributions](#contributions)
-- [Links](#links)
+- [Reporting issues](#reporting-issues)
 
 <!-- /MarkdownTOC -->
 
@@ -56,7 +55,7 @@ Not much to say here :) It's the default mode that is activated when you launch 
 
 ### The monitor mode
 
-When using procgov you may observe that it sometimes launches a second instance of itself (unless you use the --nomonitor switch). This second instance is a job monitor and you may recognize it by the --monitor switch in the command line args. It will stay alive until the last process in the monitored jobs exits. There should be at maximum one instance of a job monitor per Windows session. Its role is to monitor jobs created with procgov. The monitor should exit right after the termination of the last process in the monitored jobs.
+When you use named jobs (the **--job-name** switch) procgov launches a second instance of itself. This second instance is a job monitor (its command line contains the **--monitor** switch) and its role is to monitor jobs created with procgov. There should be at maximum one instance of a job monitor per Windows session and the monitor should exit right after the termination of the last process in the monitored jobs.
 
 ### The service mode (beta)
 
@@ -79,7 +78,7 @@ You may set limits on a newly created process or on an already running one. To *
 procgov.exe --maxmem 40M --pid 1234
 ```
 
-To **start a new process** with the limits applied, just pass the process image path as a procgov argument, eg. `procgov64 --maxmem 40M c:\temp\test.exe`. If you need to **pass any parameters to the target process**, it's best to use `--` to separate procgov parameters from the target process ones, for example:
+To **start a new process** with the limits applied, just pass the process image path as a procgov argument, eg. `procgov64 --maxmem 40M c:\temp\test.exe`. If you need to **pass any parameters to the target process**, it's best to use **--** to separate procgov parameters from the target process ones, for example:
 
 ```shell
 procgov.exe -m 100M -- test.exe -arg1 -arg2=val2 arg3
@@ -93,18 +92,16 @@ You may assign multiple processes to the same job object. When you use the **-p*
 procgov.exe --maxmem 100M -p 1234 -p 1235 -p 1236
 ```
 
-If any of the processes was already assigned to a procgov job object, others will be assigned to it as well.
-
 ### Updating already applied limits
 
-It is also possible to **update once set limits**. However, there is one requirement: the processes can't be assigned to different procgov jobs (so they must be either in the same job or unassigned). To update the limits, simply run procgov providing new limits and the target process ID(s). Procgov will update only the specified limits. Let's have a look at an example to understand this behavior better:
+Starting from version 4.0, procgov job objects are anonymous and they can't be updated (running procgov again for the same process will create a new job object). If you plan to **update once set limits**, you have to use the **--job-name** switch in the command line, thus creating a named job object. The processes can't be assigned to different procgov jobs (so they must be either in the same job or unassigned). To update the limits, simply run procgov providing the same job name, new limits and the target process ID(s). Procgov will overwrite the previous limits with new ones. Let's have a look at an example to understand this behavior better:
 
 ```shell
-We set a CPU limit on a process 1234
-procgov.exe --nowait -c 2 -p 1234
+# We set a CPU limit on a process 1234
+procgov.exe --job-name job1234 --nowait -c 2 -p 1234
 
-Then we run procgov again with the new CPU limit - procgov will update the existing job object
-procgov.exe --nowait -c 4 -p 1234
+# Then we run procgov again with the new CPU limit - procgov will update the existing job object
+procgov.exe  --job-name job1234 --nowait -c 4 -p 1234
 ```
 
 Available process constraints
@@ -214,6 +211,10 @@ Other options
 
 The **--priority** parameter sets the process priority class of monitored processes. Possible values include: `Idle`, `BelowNormal`, `Normal`, `AboveNormal`, `High`, `RealTime`. The highest three priorities require **SeIncreaseBasePriorityPrivilege**, so make sure your account has it (more info in the [issue 69](https://github.com/lowleveldesign/process-governor/issues/69)).
 
+### Set the efficiency mode
+
+The **--efficiency-mode** parameter sets the process efficiency mode (or power throttling). If you set it to `auto` (the default setting for newly started process), you will rely on the system to decide if a given process should be running in the efficiency mode. Using `on` or `off` will explicitly enable of disable the efficiency mode (the system should no longer modify this setting).
+
 ### Set additional environment variables for a process
 
 With the **--env** switch you may set process environment variables. This switch accepts a path to a text file with the variable values, for example:
@@ -222,6 +223,8 @@ With the **--env** switch you may set process environment variables. This switch
 COR_ENABLE_PROFILING=0x01
 COR_PROFILER={32E2F4DA-1BEA-47ea-88F9-C5DAF691C94A}
 ```
+
+If you set an empty value, the environment variable will be removed from the process environment.
 
 The procgov command might look as follows:
 
@@ -245,8 +248,8 @@ Keep in mind that in Windows, you can't add new privileges to the process token.
 
 You may use the --freeze and --thaw options to control execution of processes managed by procgov jobs. When launching a new process with the --freeze option, it will remain in a suspended state that occurs even earlier than when using the [CREATE_SUSPENDED flag](https://learn.microsoft.com/en-us/windows/win32/procthread/process-creation-flags). This means that even if there are missing imports, the process won't fail - instead, the main image will be loaded into memory, allowing for any necessary fixes to be made.
 
-Troubleshooting
----------------
+Reporting issues
+----------------
 
 If you encounter a problem with procgov, please download the [WPR profile](https://raw.githubusercontent.com/lowleveldesign/process-governor/refs/heads/master/procgov.wprp) and collect a basic ETW trace using it. You can do it by running the following commands in the admin command prompt:
 
@@ -259,19 +262,3 @@ wpr.exe -stop c:\temp\procgov.etl
 ```
 
 Then zip the etl file, create [a new issue](https://github.com/lowleveldesign/process-governor/issues), describe the problem you are getting, and attach the collected trace.
-
-Contributions
--------------
-
-Below you may find a list of people who contributed to this project. Thank you!
-
-- @rowandh - an issue with the WS limit not being set
-- @beevvy - an issue report and a fix for a bug with the environment variables
-- @weidingerhp - an idea of environment variables for a process and CLR profiler setup
-
-Links
------
-
-- **2013.11.21** - [Set process memory limit with Process Governor](http://lowleveldesign.wordpress.com/2013/11/21/set-process-memory-limit-with-process-governor)
-- **2016.10.21** - [Releasing wtrace 1.0 and procgov 2.0](https://lowleveldesign.wordpress.com/2016/10/21/releasing-wtrace-1-0-and-procgov-2-0/)
-- **2019.01.31** - [Limit the execution time of a process tree on Windows](https://lowleveldesign.wordpress.com/2019/01/31/limit-the-execution-time-of-a-process-tree-on-windows/)
