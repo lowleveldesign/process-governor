@@ -48,11 +48,6 @@ jobs:
           artifacts/*.pdb
           artifacts/*.exe
 
-    - name: Publish to winget
-      env:
-        WINGET_CREATE_GITHUB_TOKEN: ${{ secrets.WINGET_GH_TOKEN }}
-      run: ./winget-publish.ps1
-
     - name: Copy the binary to Chocolatey path
       run: |
           Copy-Item artifacts\procgov.exe .choco\tools
