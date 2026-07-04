@@ -570,8 +570,11 @@ public static class Win32ProcessModule
                 StateMask = effMode.HasFlag(EfficiencyMode.Auto) || effMode.HasFlag(EfficiencyMode.Off) ? 0 :
                     PInvoke.PROCESS_POWER_THROTTLING_EXECUTION_SPEED
             };
-            PInvoke.SetProcessInformation(processHandle, PROCESS_INFORMATION_CLASS.ProcessPowerThrottling, 
-                &state, (uint)sizeof(PROCESS_POWER_THROTTLING_STATE));
+            if (!PInvoke.SetProcessInformation(processHandle, PROCESS_INFORMATION_CLASS.ProcessPowerThrottling, 
+                &state, (uint)sizeof(PROCESS_POWER_THROTTLING_STATE)))
+            {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
         }
     }
 
