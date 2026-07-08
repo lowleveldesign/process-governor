@@ -1,14 +1,8 @@
 ﻿using ProcessGovernor.Library;
-using System;
-using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.IO;
-using System.Linq;
 using System.Runtime.InteropServices;
-using System.Threading;
-using System.Threading.Tasks;
 using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.System.Threading;
@@ -16,33 +10,33 @@ using Win32ProcessModule = ProcessGovernor.Library.Win32ProcessModule;
 
 namespace ProcessGovernor.Tests.Code;
 
-public static partial class ProgramTests
+public partial class ProgramTests
 {
 
     [Test]
-    public static async Task CmdAppProcessStartFailure()
+    public async Task CmdAppProcessStartFailure()
     {
-        var exception = Assert.CatchAsync<Win32Exception>(async () =>
+        var exception = await Assert.ThrowsExactlyAsync<Win32Exception>(async () =>
         {
             await Program.Execute(new RunAsCmdApp(JobSettings.Empty,
                 new LaunchProcess(["____wrong-executable.exe"], false), LaunchConfig.Quiet, StartBehavior.None,
                 ExitBehavior.WaitForJobCompletion),
                 CancellationToken.None);
         });
-        Assert.That(exception?.NativeErrorCode, Is.EqualTo(2));
+        await Assert.That(exception?.NativeErrorCode).IsEqualTo(2);
     }
 
     [Test]
-    public static async Task CmdAppLaunchProcessExitCodeForwarding()
+    public async Task CmdAppLaunchProcessExitCodeForwarding()
     {
         var exitCode = await Program.Execute(new RunAsCmdApp(JobSettings.Empty,
             new LaunchProcess(["cmd.exe", "/c", "exit 5"], false), LaunchConfig.Quiet, StartBehavior.None,
             ExitBehavior.WaitForJobCompletion), CancellationToken.None);
-        Assert.That(exitCode, Is.EqualTo(5));
+        await Assert.That(exitCode).IsEqualTo(5);
     }
 
     [Test]
-    public static async Task CmdAppLaunchProcessWithEnvironmentVariables()
+    public async Task CmdAppLaunchProcessWithEnvironmentVariables()
     {
         Environment.SetEnvironmentVariable("TESTEMPTY", "SOMETHING");
 
@@ -70,7 +64,7 @@ public static partial class ProgramTests
         foreach (var (k, v) in expectedEnvVars)
         {
             var actualEnvValue = Win32ProcessModule.GetProcessEnvironmentVariable(cmd.Handle, k);
-            Assert.That(actualEnvValue, Is.EqualTo(v));
+            await Assert.That(actualEnvValue).IsEqualTo(v);
         }
 
         Win32ProcessModule.WaitForTheProcessToExit(cmd.Handle, cts.Token);
@@ -81,7 +75,7 @@ public static partial class ProgramTests
     }
 
     [Test]
-    public static async Task CmdAppAttachProcessExitCodeForwarding()
+    public async Task CmdAppAttachProcessExitCodeForwarding()
     {
         using var cts = new CancellationTokenSource(10000);
 
@@ -106,11 +100,11 @@ public static partial class ProgramTests
         var exitCode = await runTask;
 
         // procgov does not forward exit codes when attaching to processes
-        Assert.That(exitCode, Is.EqualTo(0));
+        await Assert.That(exitCode).IsEqualTo(0);
     }
 
     [Test]
-    public static async Task CmdAppAttachProcessAndUpdateJob()
+    public async Task CmdAppAttachProcessAndUpdateJob()
     {
         using var cts = new CancellationTokenSource(10000);
 
@@ -135,10 +129,10 @@ public static partial class ProgramTests
             // let's give the IOCP some time to arrive
             await Task.Delay(500);
 
-            Assert.That((await SharedApi.GetJobIdFromMonitor(cmd.Id, cts.Token)).GetJobName(), Is.EqualTo(jobName));
+            await Assert.That((await SharedApi.GetJobIdFromMonitor(cmd.Id, cts.Token)).GetJobName()).IsEqualTo(jobName);
 
             using var jobHandle = Win32JobModule.OpenJobHandle(jobName, PInvoke.JOB_OBJECT_QUERY);
-            Assert.That(Win32JobModule.QueryJobSettings(jobHandle), Is.EqualTo((Win32JobSettings)jobSettings));
+            await Assert.That(Win32JobModule.QueryJobSettings(jobHandle)).IsEqualTo((Win32JobSettings)jobSettings);
 
             jobSettings = JobSettings.Empty with
             {
@@ -149,8 +143,8 @@ public static partial class ProgramTests
             await Program.Execute(new RunAsCmdApp(jobSettings, new AttachToProcess([cmd.Id]),
                 LaunchConfig.Quiet, StartBehavior.None, ExitBehavior.DontWaitForJobCompletion), cts.Token);
 
-            Assert.That((await SharedApi.GetJobIdFromMonitor(cmd.Id, cts.Token)).GetJobName(), Is.EqualTo(jobName));
-            Assert.That(Win32JobModule.QueryJobSettings(jobHandle), Is.EqualTo((Win32JobSettings)jobSettings));
+            await Assert.That((await SharedApi.GetJobIdFromMonitor(cmd.Id, cts.Token)).GetJobName()).IsEqualTo(jobName);
+            await Assert.That(Win32JobModule.QueryJobSettings(jobHandle)).IsEqualTo((Win32JobSettings)jobSettings);
 
             cts.Cancel();
 
@@ -165,7 +159,7 @@ public static partial class ProgramTests
 
 
     [Test]
-    public static async Task CmdAppLaunchProcessAndUpdateJob()
+    public async Task CmdAppLaunchProcessAndUpdateJob()
     {
         using var cts = new CancellationTokenSource(10000);
 
@@ -187,7 +181,7 @@ public static partial class ProgramTests
             await Task.Delay(500);
 
             using var jobHandle = Win32JobModule.OpenJobHandle(jobName, PInvoke.JOB_OBJECT_QUERY);
-            Assert.That(Win32JobModule.QueryJobSettings(jobHandle), Is.EqualTo((Win32JobSettings)jobSettings));
+            await Assert.That(Win32JobModule.QueryJobSettings(jobHandle)).IsEqualTo((Win32JobSettings)jobSettings);
 
             // starting new process with the same name should update job settings
             jobSettings = JobSettings.Empty with
@@ -199,7 +193,7 @@ public static partial class ProgramTests
             await Program.Execute(new RunAsCmdApp(jobSettings, new LaunchProcess(["cmd.exe", "/c", "timeout 3"], false),
                 LaunchConfig.Quiet, StartBehavior.None, ExitBehavior.DontWaitForJobCompletion), cts.Token);
 
-            Assert.That(Win32JobModule.QueryJobSettings(jobHandle), Is.EqualTo((Win32JobSettings)jobSettings));
+            await Assert.That(Win32JobModule.QueryJobSettings(jobHandle)).IsEqualTo((Win32JobSettings)jobSettings);
 
             cts.Cancel();
 
@@ -212,11 +206,9 @@ public static partial class ProgramTests
     }
 
     [Test]
-    public static async Task CmdAppUpdateProcessEnvironmentVariables(
-        [Values(
-            Environment.SpecialFolder.System,
-            Environment.SpecialFolder.SystemX86)
-        ]Environment.SpecialFolder systemFolder)
+    [MatrixDataSource]
+    public async Task CmdAppUpdateProcessEnvironmentVariables(
+        [Matrix(Environment.SpecialFolder.System, Environment.SpecialFolder.SystemX86)] Environment.SpecialFolder systemFolder)
     {
         Environment.SetEnvironmentVariable("TESTEMPTY", "SOMETHING");
 
@@ -248,7 +240,7 @@ public static partial class ProgramTests
             {
                 var actualEnvValue = Win32ProcessModule.GetProcessEnvironmentVariable(proc.SafeHandle, k);
 
-                Assert.That(actualEnvValue, Is.EqualTo(v));
+                await Assert.That(actualEnvValue).IsEqualTo(v);
             }
         }
         finally
@@ -263,7 +255,7 @@ public static partial class ProgramTests
     }
 
     [Test]
-    public static async Task CmdAppLaunchProcessFreezeAndThaw()
+    public async Task CmdAppLaunchProcessFreezeAndThaw()
     {
         using var cts = new CancellationTokenSource(10000);
 
@@ -276,7 +268,7 @@ public static partial class ProgramTests
                 JobSettings.Empty with { RunMode = new RunInNamedJob(jobName) },
                 new LaunchProcess(["cmd.exe", "/c", "exit 5"], false), LaunchConfig.Quiet,
                 StartBehavior.Freeze, ExitBehavior.DontWaitForJobCompletion), cts.Token);
-            Assert.That(exitCode, Is.EqualTo(NTSTATUS.STILL_ACTIVE.Value));
+            await Assert.That(exitCode).IsEqualTo(NTSTATUS.STILL_ACTIVE.Value);
 
             await Task.Delay(2000, cts.Token);
 
@@ -291,7 +283,7 @@ public static partial class ProgramTests
                 JobSettings.Empty with { RunMode = new RunInNamedJob(jobName) },
                 new AttachToProcess([(uint)cmd.Id]), LaunchConfig.Quiet, StartBehavior.Thaw,
                 ExitBehavior.WaitForJobCompletion), cts.Token);
-            Assert.That(exitCode, Is.EqualTo(0));
+            await Assert.That(exitCode).IsEqualTo(0);
 
             cts.Cancel();
             await monitorTask;
@@ -303,7 +295,7 @@ public static partial class ProgramTests
     }
 
     [Test]
-    public static async Task CmdAppLaunchProcessWithLimits()
+    public async Task CmdAppLaunchProcessWithLimits()
     {
         using var cts = new CancellationTokenSource(5000);
 
@@ -330,14 +322,14 @@ public static partial class ProgramTests
         var cmdHandle = PInvoke.OpenProcess(PROCESS_ACCESS_RIGHTS.PROCESS_QUERY_LIMITED_INFORMATION, false, (uint)cmd.Id);
         try
         {
-            Assert.That(GetEfficiencyMode(cmdHandle), Is.EqualTo(EfficiencyMode.On));
+            await Assert.That(GetEfficiencyMode(cmdHandle)).IsEqualTo(EfficiencyMode.On);
         }
         finally
         {
             PInvoke.CloseHandle(cmdHandle);
         }
 
-        Assert.That(await cmdLaunchTask, Is.EqualTo(5));
+        await Assert.That(await cmdLaunchTask).IsEqualTo(5);
 
         cts.Cancel();
 
@@ -356,6 +348,5 @@ public static partial class ProgramTests
             }
             return state.ControlMask == 0 ? EfficiencyMode.Auto : (state.StateMask != 0 ? EfficiencyMode.On : EfficiencyMode.Off);
         }
-
     }
 }

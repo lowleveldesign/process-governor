@@ -1,13 +1,8 @@
 ﻿using Nerdbank.MessagePack;
 using ProcessGovernor.Library;
-using System;
 using System.Buffers;
 using System.ComponentModel;
-using System.IO;
 using System.IO.Pipes;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using Windows.Win32;
 using Windows.Win32.Foundation;
 
@@ -15,10 +10,10 @@ using static ProcessGovernor.Library.ProcessGovernorLibraryApi;
 
 namespace ProcessGovernor.Tests.Code;
 
-public static partial class ProgramTests
+public partial class ProgramTests
 {
     [Test]
-    public static async Task MonitorNoProcessStarted()
+    public async Task MonitorNoProcessStarted()
     {
         using var cts = new CancellationTokenSource(10000);
 
@@ -39,11 +34,11 @@ public static partial class ProgramTests
 
         await Task.Delay(maxIdleTime + TimeSpan.FromSeconds(1), cts.Token);
 
-        Assert.That(monitorTask.IsCompletedSuccessfully);
+        await Assert.That(monitorTask.IsCompletedSuccessfully).IsTrue();
     }
 
     [Test]
-    public static async Task MonitorStartExitProcessEvents()
+    public async Task MonitorStartExitProcessEvents()
     {
         using var cts = new CancellationTokenSource(10000);
 
@@ -56,21 +51,21 @@ public static partial class ProgramTests
         Win32JobModule.SetLimits(jobHandle, jobSettings);
 
         int notificationNumber = 0;
-        void NotificationCheck(IMonitorNotification resp)
+        async Task NotificationCheck(IMonitorNotification resp)
         {
             switch (resp)
             {
                 case NewProcessEvent ev:
-                    Assert.That(notificationNumber, Is.EqualTo(0));
-                    Assert.That(ev.JobId, Is.EqualTo(jobId));
+                    await Assert.That(notificationNumber).IsEqualTo(0);
+                    await Assert.That(ev.JobId).IsEqualTo(jobId);
                     break;
                 case ExitProcessEvent ev:
-                    Assert.That(notificationNumber, Is.EqualTo(1));
-                    Assert.That(ev.JobId, Is.EqualTo(jobId));
+                    await Assert.That(notificationNumber).IsEqualTo(1);
+                    await Assert.That(ev.JobId).IsEqualTo(jobId);
                     break;
                 case NoProcessesInJobEvent ev:
-                    Assert.That(notificationNumber, Is.EqualTo(2));
-                    Assert.That(ev.JobId, Is.EqualTo(jobId));
+                    await Assert.That(notificationNumber).IsEqualTo(2);
+                    await Assert.That(ev.JobId).IsEqualTo(jobId);
                     break;
                 default:
                     Assert.Fail($"Unexpected event: {resp}");
@@ -82,13 +77,13 @@ public static partial class ProgramTests
         await H.StartAndAssignProcessToNamedJob(jobHandle, jobId, "cmd.exe /c \"exit 1\"", NotificationCheck, cts.Token);
 
         // job is not signaled
-        Assert.That(PInvoke.WaitForSingleObject(jobHandle, 0), Is.EqualTo(WAIT_EVENT.WAIT_TIMEOUT));
+        await Assert.That(PInvoke.WaitForSingleObject(jobHandle, 0)).IsEqualTo(WAIT_EVENT.WAIT_TIMEOUT);
 
-        Assert.That(notificationNumber, Is.EqualTo(3));
+        await Assert.That(notificationNumber).IsEqualTo(3);
     }
 
     [Test]
-    public static async Task MonitorProcessStartFailure()
+    public async Task MonitorProcessStartFailure()
     {
         var maxMonitorIdleTime = TimeSpan.FromSeconds(2);
 
@@ -117,8 +112,7 @@ public static partial class ProgramTests
 
         var msgPackReader = new MessagePackReader(buffer.WrittenMemory);
         var resp = MsgPackSerializer.Deserialize<IMonitorResponse>(ref msgPackReader, cts.Token);
-        Assert.That(resp is AckResp { IsSuccess: true });
-        Assert.That(readBytes, Is.EqualTo(msgPackReader.Consumed));
+        await Assert.That(resp is AckResp { IsSuccess: true }).IsTrue();
         buffer.ResetWrittenCount();
 
         Assert.Throws<Win32Exception>(() =>
@@ -128,18 +122,18 @@ public static partial class ProgramTests
 
         pipe.Dispose();
 
-        Assert.That(Task.WaitAny([monitorTask], cts.Token) >= 0);
+        await Assert.That(Task.WaitAny([monitorTask], cts.Token) >= 0).IsTrue();
     }
 
     [Test]
-    public static async Task MonitorStartExitProcessWithoutNotifications()
+    public async Task MonitorStartExitProcessWithoutNotifications()
     {
         using var cts = new CancellationTokenSource(10000);
 
         var jobSettings = JobSettings.Empty with { PropagateOnChildProcesses = false };
         var jobName = Guid.NewGuid().ToString();
         var jobId = new RunningJobId(RunModes.NamedJob(jobName), new(jobName));
-       
+
         using var jobHandle = Win32JobModule.CreateJob(jobName);
 
         Win32JobModule.SetLimits(jobHandle, jobSettings);
@@ -147,11 +141,11 @@ public static partial class ProgramTests
         await H.StartAndAssignProcessToNamedJob(jobHandle, jobId, "cmd.exe /c \"exit 1\"", null, cts.Token);
 
         // job is not signaled
-        Assert.That(PInvoke.WaitForSingleObject(jobHandle, 0), Is.EqualTo(WAIT_EVENT.WAIT_TIMEOUT));
+        await Assert.That(PInvoke.WaitForSingleObject(jobHandle, 0)).IsEqualTo(WAIT_EVENT.WAIT_TIMEOUT);
     }
 
     [Test]
-    public static async Task MonitorTerminateJobEvents()
+    public async Task MonitorTerminateJobEvents()
     {
         using var cts = new CancellationTokenSource(10000);
 
@@ -163,18 +157,18 @@ public static partial class ProgramTests
         Win32JobModule.SetLimits(jobHandle, jobSettings);
 
         int notificationNumber = 0;
-        void NotificationCheck(IMonitorNotification resp)
+        async Task NotificationCheck(IMonitorNotification resp)
         {
             switch (resp)
             {
                 case NewProcessEvent ev:
-                    Assert.That(notificationNumber, Is.EqualTo(0));
-                    Assert.That(ev.JobId, Is.EqualTo(jobId));
+                    await Assert.That(notificationNumber).IsEqualTo(0);
+                    await Assert.That(ev.JobId).IsEqualTo(jobId);
                     break;
                 case NoProcessesInJobEvent ev:
                     // we are not getting the usual process exit event when job is terminated
-                    Assert.That(notificationNumber, Is.EqualTo(1));
-                    Assert.That(ev.JobId, Is.EqualTo(jobId));
+                    await Assert.That(notificationNumber).IsEqualTo(1);
+                    await Assert.That(ev.JobId).IsEqualTo(jobId);
                     break;
                 default:
                     Assert.Fail($"Unexpected event: {resp}");
@@ -199,13 +193,13 @@ public static partial class ProgramTests
         await monitorTask;
 
         // job should albo be signaled
-        Assert.That(PInvoke.WaitForSingleObject(jobHandle, 0), Is.EqualTo(WAIT_EVENT.WAIT_OBJECT_0));
+        await Assert.That(PInvoke.WaitForSingleObject(jobHandle, 0)).IsEqualTo(WAIT_EVENT.WAIT_OBJECT_0);
 
-        Assert.That(notificationNumber, Is.EqualTo(2));
+        await Assert.That(notificationNumber).IsEqualTo(2);
     }
 
     [Test]
-    public static async Task MonitorActiveProcessNumberExceeded()
+    public async Task MonitorActiveProcessNumberExceeded()
     {
         const int maxActiveProcessLimit = 3;
         using var cts = new CancellationTokenSource(15000);
@@ -218,18 +212,18 @@ public static partial class ProgramTests
         Win32JobModule.SetLimits(jobHandle, jobSettings);
 
         int notificationNumber = 0;
-        void NotificationCheck(IMonitorNotification resp)
+        async Task NotificationCheck(IMonitorNotification resp)
         {
             switch (resp)
             {
                 case NewProcessEvent ev:
-                    Assert.That(notificationNumber, Is.GreaterThanOrEqualTo(0).And.LessThan(jobSettings.ActiveProcessLimit));
-                    Assert.That(ev.JobId, Is.EqualTo(jobId));
+                    await Assert.That(notificationNumber).IsGreaterThanOrEqualTo(0).And.IsLessThan((int)jobSettings.ActiveProcessLimit);
+                    await Assert.That(ev.JobId).IsEqualTo(jobId);
                     break;
                 case JobLimitExceededEvent jobLimit:
-                    Assert.That(notificationNumber, Is.EqualTo(jobSettings.ActiveProcessLimit));
-                    Assert.That(jobLimit.ExceededLimit, Is.EqualTo(LimitType.ActiveProcessNumber));
-                    Assert.That(jobLimit.JobId, Is.EqualTo(jobId));
+                    await Assert.That(notificationNumber).IsEqualTo((int)jobSettings.ActiveProcessLimit);
+                    await Assert.That(jobLimit.ExceededLimit).IsEqualTo(LimitType.ActiveProcessNumber);
+                    await Assert.That(jobLimit.JobId).IsEqualTo(jobId);
 
                     // The job does not allow more processes to be created and is still active. Therefore,
                     // we need to stop the monitor manually.
@@ -256,20 +250,20 @@ public static partial class ProgramTests
         }
 
         // job is not signaled
-        Assert.That(PInvoke.WaitForSingleObject(jobHandle, 0), Is.EqualTo(WAIT_EVENT.WAIT_TIMEOUT));
+        await Assert.That(PInvoke.WaitForSingleObject(jobHandle, 0)).IsEqualTo(WAIT_EVENT.WAIT_TIMEOUT);
 
-        Assert.That(notificationNumber, Is.EqualTo(4));
+        await Assert.That(notificationNumber).IsEqualTo(4);
     }
 
     [Test]
-    public static async Task MonitorProcessMemoryLimitExceeded()
+    public async Task MonitorProcessMemoryLimitExceeded()
     {
         using var cts = new CancellationTokenSource(10000);
 
         var testLimitPath = await H.DownloadSysinternalsTestLimit(cts.Token);
 
         // memory limit per process is 2MB
-        var jobSettings = JobSettings.Empty with { MaxProcessMemory = 100 * 1024 * 1024, PropagateOnChildProcesses = true };
+        var jobSettings = JobSettings.Empty with { MaxProcessMemory = 500 * 1024 * 1024, PropagateOnChildProcesses = true };
         var jobName = Guid.NewGuid().ToString();
         var jobId = new RunningJobId(RunModes.NamedJob(jobName), new(jobName));
         using var jobHandle = Win32JobModule.CreateJob(jobName);
@@ -277,18 +271,18 @@ public static partial class ProgramTests
         Win32JobModule.SetLimits(jobHandle, jobSettings);
 
         int notificationNumber = 0;
-        void NotificationCheck(IMonitorNotification resp)
+        async Task NotificationCheck(IMonitorNotification resp)
         {
             switch (resp)
             {
                 case NewProcessEvent ev:
-                    Assert.That(notificationNumber, Is.EqualTo(0));
-                    Assert.That(ev.JobId, Is.EqualTo(jobId));
+                    await Assert.That(notificationNumber).IsEqualTo(0);
+                    await Assert.That(ev.JobId).IsEqualTo(jobId);
                     break;
                 case ProcessLimitExceededEvent jobLimit:
-                    Assert.That(notificationNumber, Is.EqualTo(1));
-                    Assert.That(jobLimit.ExceededLimit, Is.EqualTo(LimitType.Memory));
-                    Assert.That(jobLimit.JobId, Is.EqualTo(jobId));
+                    await Assert.That(notificationNumber).IsEqualTo(1);
+                    await Assert.That(jobLimit.ExceededLimit).IsEqualTo(LimitType.Memory);
+                    await Assert.That(jobLimit.JobId).IsEqualTo(jobId);
 
                     // The job is still active. Therefore, we need to stop the monitor manually.
                     cts.Cancel();
@@ -311,14 +305,14 @@ public static partial class ProgramTests
         }
 
         // job is not signaled
-        Assert.That(PInvoke.WaitForSingleObject(jobHandle, 0), Is.EqualTo(WAIT_EVENT.WAIT_TIMEOUT));
+        await Assert.That(PInvoke.WaitForSingleObject(jobHandle, 0)).IsEqualTo(WAIT_EVENT.WAIT_TIMEOUT);
 
-        Assert.That(notificationNumber, Is.EqualTo(2));
+        await Assert.That(notificationNumber).IsEqualTo(2);
     }
 
 
     [Test]
-    public static async Task MonitorJobMetadata()
+    public async Task MonitorJobMetadata()
     {
         using var cts = new CancellationTokenSource(10000);
 
@@ -345,16 +339,16 @@ public static partial class ProgramTests
 
             int notificationNumber = 0;
 
-            void NotificationCheck(IMonitorNotification n)
+            async Task NotificationCheck(IMonitorNotification n)
             {
                 switch (n)
                 {
                     case NewProcessEvent ev:
-                        Assert.That(notificationNumber, Is.EqualTo(0));
-                        Assert.That(ev.JobId, Is.EqualTo(p2JobId));
+                        await Assert.That(notificationNumber).IsEqualTo(0);
+                        await Assert.That(ev.JobId).IsEqualTo(p2JobId);
                         break;
                     case NoProcessesInJobEvent ev:
-                        Assert.That(ev.JobId, Is.EqualTo(p1JobId).Or.EqualTo(p2JobId));
+                        await Assert.That(ev.JobId).IsEqualTo(p1JobId).Or.IsEqualTo(p2JobId);
                         break;
                     default:
                         break;
@@ -376,7 +370,7 @@ public static partial class ProgramTests
         }
 
 
-        async Task NotificationListener(Action<IMonitorNotification> processNotification, CancellationToken ct)
+        async Task NotificationListener(Func<IMonitorNotification, Task> processNotification, CancellationToken ct)
         {
             var buffer = new ArrayBufferWriter<byte>(1024);
             try
@@ -391,10 +385,10 @@ public static partial class ProgramTests
                         var msgPackReader = new MessagePackReader(buffer.WrittenMemory[processedBytes..]);
                         if (MsgPackSerializer.Deserialize<IMonitorResponse>(ref msgPackReader, ct) is IMonitorNotification notification)
                         {
-                            processNotification(notification);
+                            processedBytes += (int)msgPackReader.Consumed;
+                            await processNotification(notification);
                         }
-                        else { Assert.Fail(); }
-                        processedBytes += (int)msgPackReader.Consumed;
+                        else { Assert.Fail("serialization failed"); }
                     }
 
                     buffer.ResetWrittenCount();

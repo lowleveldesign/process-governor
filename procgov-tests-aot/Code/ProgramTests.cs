@@ -64,7 +64,7 @@ public partial class ProgramTests
         }
 
         public static async Task StartAndAssignProcessToNamedJob(SafeHandle jobHandle, RunningJobId jobId,
-            string processArgs, Action<IMonitorNotification>? processNotification, CancellationToken ct)
+            string processArgs, Func<IMonitorNotification, Task>? processNotification, CancellationToken ct)
         {
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
@@ -136,7 +136,7 @@ public partial class ProgramTests
                     while (!ct.IsCancellationRequested)
                     {
                         var notification = await monitorPipeClient.NotificationsReader.ReadAsync(ct);
-                        processNotification(notification);
+                        await processNotification(notification);
                     }
                 }
                 catch (Exception ex) when (ex.IsCancelledException()) { }

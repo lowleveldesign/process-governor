@@ -1,37 +1,23 @@
 ﻿using Microsoft.Win32.SafeHandles;
 using ProcessGovernor.Library;
-using System;
 using System.Diagnostics;
-using System.IO;
 using System.IO.Pipes;
 using System.Security.Principal;
 using System.ServiceProcess;
-using System.Threading;
-using System.Threading.Tasks;
-using Windows.Win32;
 using ProcessGovernorService = ProcessGovernor.Program.ProcessGovernorService;
 
 namespace ProcessGovernor.Tests.Application;
 
-public static class ServiceTests
+public class ServiceTests
 {
     // Tests are not using NativeAOT so copying procgov.exe is not enough to install the service. We will
     // instead use the BaseDirectory and this way skip copying.
     static readonly string ServicePath = Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory);
 
-    static ServiceTests()
-    {
-        SharedApi.InitializeTestContext();
-    }
-
     [Test]
-    public static async Task ServiceSetupAndRemoval()
+    [AdminOnly]
+    public async Task ServiceSetupAndRemoval()
     {
-        if (!Environment.IsPrivilegedProcess)
-        {
-            Assert.Ignore("This test requires elevated privileges");
-        }
-
         string[] monitoredExecutablePaths = ["test1.exe", "test2.exe"];
 
         using var cts = new CancellationTokenSource(60000);
@@ -50,14 +36,14 @@ public static class ServiceTests
                 };
                 using var procgov = Process.Start(psi)!;
                 await procgov.WaitForExitAsync(cts.Token);
-                TestContext.Out.WriteLine(await procgov.StandardOutput.ReadToEndAsync(cts.Token));
+                TestContext.Current!.Output.WriteLine(await procgov.StandardOutput.ReadToEndAsync(cts.Token));
             }
 
-            Assert.That(ProcessGovernorService.IsServiceInstalled(Program.ServiceName));
+            await Assert.That(ProcessGovernorService.IsServiceInstalled(Program.ServiceName)).IsTrue();
 
             using (var serviceControl = new ServiceController(Program.ServiceName))
             {
-                Assert.That(serviceControl.Status, Is.EqualTo(ServiceControllerStatus.Running));
+                await Assert.That(serviceControl.Status).IsEqualTo(ServiceControllerStatus.Running);
 
                 // let's remove the first executable - the service should keep running
                 var psi = new ProcessStartInfo(procgovExecutablePath)
@@ -68,11 +54,11 @@ public static class ServiceTests
                 };
                 using var procgov = Process.Start(psi)!;
                 await procgov.WaitForExitAsync(cts.Token);
-                TestContext.Out.WriteLine(await procgov.StandardOutput.ReadToEndAsync(cts.Token));
+                TestContext.Current!.Output.WriteLine(await procgov.StandardOutput.ReadToEndAsync(cts.Token));
 
                 await Task.Delay(1000, cts.Token);
 
-                Assert.That(serviceControl.Status, Is.EqualTo(ServiceControllerStatus.Running));
+                await Assert.That(serviceControl.Status).IsEqualTo(ServiceControllerStatus.Running);
             }
 
             {
@@ -85,12 +71,12 @@ public static class ServiceTests
                 };
                 using var procgov = Process.Start(psi)!;
                 await procgov.WaitForExitAsync(cts.Token);
-                TestContext.Out.WriteLine(await procgov.StandardOutput.ReadToEndAsync(cts.Token));
+                TestContext.Current!.Output.WriteLine(await procgov.StandardOutput.ReadToEndAsync(cts.Token));
             }
 
             await Task.Delay(2000, cts.Token);
 
-            Assert.That(ProcessGovernorService.IsServiceInstalled(Program.ServiceName), Is.False);
+            await Assert.That(ProcessGovernorService.IsServiceInstalled(Program.ServiceName)).IsFalse();
         }
         finally
         {
@@ -102,13 +88,9 @@ public static class ServiceTests
     }
 
     [Test]
-    public static async Task ServiceSetupAndMonitoredProcessLaunch()
+    [AdminOnly]
+    public async Task ServiceSetupAndMonitoredProcessLaunch()
     {
-        if (!Environment.IsPrivilegedProcess)
-        {
-            Assert.Ignore("This test requires elevated privileges");
-        }
-
         const string monitoredExecutablePath = "winver.exe";
 
         using var cts = new CancellationTokenSource(90000);
@@ -127,7 +109,7 @@ public static class ServiceTests
             };
             using var procgov = Process.Start(psi)!;
             await procgov.WaitForExitAsync(cts.Token);
-            TestContext.Out.WriteLine(await procgov.StandardOutput.ReadToEndAsync(cts.Token));
+            TestContext.Current!.Output.WriteLine(await procgov.StandardOutput.ReadToEndAsync(cts.Token));
 
             // give it some time to start (it enumerates running processes)
             await Task.Delay(2000, cts.Token);
@@ -148,12 +130,11 @@ public static class ServiceTests
                 using (var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous))
                 {
                     await pipe.ConnectAsync(cts.Token);
-                    Assert.That(await SharedApi.GetJobIdFromMonitor(pipe, (uint)monitoredProcess.Id, cts.Token), 
-                        Is.EqualTo(jobId));
+                    await Assert.That(await SharedApi.GetJobIdFromMonitor(pipe, (uint)monitoredProcess.Id, cts.Token)).IsEqualTo(jobId);
                 }
 
                 // we might not have enough rights to query the job settings, so we just check if process is in a job
-                Assert.That(Win32JobModule.IsProcessInJob(monitoredProcess.SafeHandle, new SafeFileHandle()));
+                await Assert.That(Win32JobModule.IsProcessInJob(monitoredProcess.SafeHandle, new SafeFileHandle())).IsTrue();
             }
             finally
             {
@@ -172,6 +153,6 @@ public static class ServiceTests
 
         await Task.Delay(2000, cts.Token);
 
-        Assert.That(ProcessGovernorService.IsServiceInstalled(Program.ServiceName), Is.False);
+        await Assert.That(ProcessGovernorService.IsServiceInstalled(Program.ServiceName)).IsFalse();
     }
 }

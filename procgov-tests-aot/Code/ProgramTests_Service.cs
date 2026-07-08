@@ -4,7 +4,6 @@ using ProcessGovernor.Library;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.IO.Pipes;
-using System.Runtime.Intrinsics.X86;
 using Windows.Win32;
 using InstalledProcessSettingsModule = ProcessGovernor.Program.InstalledProcessSettingsModule;
 

@@ -3,11 +3,18 @@ using ProcessGovernor.Library;
 using System.Buffers;
 using System.Diagnostics;
 using System.IO.Pipes;
-using System.Reflection;
 
 using static ProcessGovernor.Library.ProcessGovernorLibraryApi;
 
 namespace ProcessGovernor.Tests;
+
+public sealed class AdminOnlyAttribute() : SkipAttribute("This test is only supported when run as admin.")
+{
+    public override Task<bool> ShouldSkip(TestRegisteredContext context)
+    {
+        return Task.FromResult(!Environment.IsPrivilegedProcess);
+    }
+}
 
 static class SharedApi
 {
