@@ -182,7 +182,7 @@ public sealed partial record JobSettings(
         }
         if (PriorityClass != PriorityClass.Undefined)
         {
-            settingsApplied.Add("max_prio");
+            settingsApplied.Add("prio");
         }
         if (Privileges.Length > 0)
         {
