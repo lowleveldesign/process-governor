@@ -2,7 +2,8 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using Windows.Win32;
-
+using Windows.Win32.Foundation;
+using Windows.Win32.System.Threading;
 using static ProcessGovernor.Library.ProcessGovernorLibraryApi;
 using static ProcessGovernor.Program;
 
@@ -141,6 +142,30 @@ public partial class ProgramTests
                 }
                 catch (Exception ex) when (ex.IsCancelledException()) { }
             }
+        }
+
+        public unsafe static (PowerThrottling, PriorityClass) GetEfficiencySettings(SafeHandle processHandle)
+        {
+            PROCESS_POWER_THROTTLING_STATE state = new()
+            {
+                Version = PInvoke.PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+            };
+            if (!PInvoke.GetProcessInformation((HANDLE)processHandle.DangerousGetHandle(),
+                PROCESS_INFORMATION_CLASS.ProcessPowerThrottling, &state, (uint)sizeof(PROCESS_POWER_THROTTLING_STATE)))
+            {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+            if (PInvoke.GetPriorityClass(processHandle) is var priorityClass && priorityClass == 0)
+            {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+
+            return state.ControlMask switch
+            {
+                0 => (PowerThrottling.Auto, (PriorityClass)priorityClass),
+                _ when state.StateMask != 0 => (PowerThrottling.On, (PriorityClass)priorityClass),
+                _ => (PowerThrottling.Off, (PriorityClass)priorityClass)
+            };
         }
     }
 }

@@ -1,5 +1,7 @@
 ﻿using Nerdbank.MessagePack;
 using PolyType;
+using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -10,7 +12,7 @@ namespace ProcessGovernor.Library;
 public static class Updater
 {
 #pragma warning disable CS0612 // Type or member is obsolete
-    public static JobSettings ToCurrent(this JobSettings_v3 jobSettings) =>
+    public static JobSettings Update(this JobSettings_v3 jobSettings) =>
         new(
             jobSettings.MaxProcessMemory,
             jobSettings.MaxJobMemory,
@@ -28,13 +30,17 @@ public static class Updater
             RunModes.Default,
             [],
             [],
-            EfficiencyMode.Undefined
+            PowerThrottling.Undefined
         );
+
+    public static JobSettings ToCurrent(this JobSettings_v3 jobSettings) =>
+        Update(jobSettings);
+
 #pragma warning restore CS0612 // Type or member is obsolete
 }
 
 [Obsolete]
-[JsonConverter(typeof(MessagePackToJsonConverter_v3<JobSettings_v3>))]
+[JsonConverter(typeof(MessagePackToJsonConverter<JobSettings_v3>))]
 [GenerateShape]
 public sealed partial record JobSettings_v3(
     [property: Key(0)] ulong MaxProcessMemory,
@@ -111,12 +117,3 @@ public sealed partial record JobSettings_v3(
     }
 }
 
-[Obsolete]
-public sealed class MessagePackToJsonConverter_v3<T> : JsonConverter<T> where T : IShapeable<T>
-{
-    public override T? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
-        MsgPackSerializer.Deserialize<T>(reader.GetBytesFromBase64());
-
-    public override void Write(Utf8JsonWriter writer, T value, JsonSerializerOptions options) =>
-        writer.WriteBase64StringValue(MsgPackSerializer.Serialize(value));
-}

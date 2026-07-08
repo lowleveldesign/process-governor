@@ -18,10 +18,6 @@ jobs:
       with:
         dotnet-version: '10.0.x' # SDK Version to use.
 
-    # other tests require a desktop environment as they start cmd.exe and winver.exe processes
-    - run: dotnet test -c release --filter "FullyQualifiedName~ProcessGovernor.Tests.Code.ProgramTests.ParseArgs"
-      working-directory: ./procgov-tests
-
     - run: dotnet publish -c release -r win-x64 -o out
       working-directory: ./procgov
 

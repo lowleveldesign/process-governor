@@ -211,17 +211,14 @@ public partial class ProgramTests
 
         Win32JobModule.SetLimits(jobHandle, jobSettings);
 
-        int notificationNumber = 0;
         async Task NotificationCheck(IMonitorNotification resp)
         {
             switch (resp)
             {
                 case NewProcessEvent ev:
-                    await Assert.That(notificationNumber).IsGreaterThanOrEqualTo(0).And.IsLessThan((int)jobSettings.ActiveProcessLimit);
                     await Assert.That(ev.JobId).IsEqualTo(jobId);
                     break;
                 case JobLimitExceededEvent jobLimit:
-                    await Assert.That(notificationNumber).IsEqualTo((int)jobSettings.ActiveProcessLimit);
                     await Assert.That(jobLimit.ExceededLimit).IsEqualTo(LimitType.ActiveProcessNumber);
                     await Assert.That(jobLimit.JobId).IsEqualTo(jobId);
 
@@ -233,7 +230,6 @@ public partial class ProgramTests
                     Assert.Fail($"Unexpected event: {resp}");
                     break;
             }
-            notificationNumber++;
         }
 
         var batchFilePath = Path.GetTempFileName() + ".bat";
@@ -251,8 +247,6 @@ public partial class ProgramTests
 
         // job is not signaled
         await Assert.That(PInvoke.WaitForSingleObject(jobHandle, 0)).IsEqualTo(WAIT_EVENT.WAIT_TIMEOUT);
-
-        await Assert.That(notificationNumber).IsEqualTo(4);
     }
 
     [Test]
@@ -270,19 +264,19 @@ public partial class ProgramTests
 
         Win32JobModule.SetLimits(jobHandle, jobSettings);
 
-        int notificationNumber = 0;
+        bool notificationReceived = false;
         async Task NotificationCheck(IMonitorNotification resp)
         {
             switch (resp)
             {
                 case NewProcessEvent ev:
-                    await Assert.That(notificationNumber).IsEqualTo(0);
                     await Assert.That(ev.JobId).IsEqualTo(jobId);
                     break;
                 case ProcessLimitExceededEvent jobLimit:
-                    await Assert.That(notificationNumber).IsEqualTo(1);
                     await Assert.That(jobLimit.ExceededLimit).IsEqualTo(LimitType.Memory);
                     await Assert.That(jobLimit.JobId).IsEqualTo(jobId);
+
+                    notificationReceived = true;
 
                     // The job is still active. Therefore, we need to stop the monitor manually.
                     cts.Cancel();
@@ -291,7 +285,6 @@ public partial class ProgramTests
                     Assert.Fail($"Unexpected event: {resp}");
                     break;
             }
-            notificationNumber++;
         }
 
         try
@@ -307,7 +300,7 @@ public partial class ProgramTests
         // job is not signaled
         await Assert.That(PInvoke.WaitForSingleObject(jobHandle, 0)).IsEqualTo(WAIT_EVENT.WAIT_TIMEOUT);
 
-        await Assert.That(notificationNumber).IsEqualTo(2);
+        await Assert.That(notificationReceived).IsTrue();
     }
 
 

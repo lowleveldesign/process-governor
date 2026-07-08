@@ -98,7 +98,7 @@ public static partial class Program
                    --process-utime=        Kill the process (with -r, also applies to its children) if it exceeds the given
                                            user-mode execution time. Add suffix to define the time unit. Valid suffixes are:
                                            ms, s, m, h.
-                   --priority=             Sets the process priority class of monitored processes. Possible values: Idle, 
+                   --priority=             Sets the priority class of monitored processes. Possible values: Idle, 
                                            BelowNormal, Normal, AboveNormal, High, RealTime.
                    --efficiency-mode=      Sets or unsets the efficiency mode. Possible values: auto, on, off.
                    --job-utime=            Kill the process (with -r, also all its children) if the total user-mode 
@@ -248,7 +248,7 @@ public static partial class Program
             var activeProcessLimit = parsedArgs.Remove("max-process-count", out v) ? uint.Parse(v[^1]) : 0u;
             var requestedJobName = parsedArgs.Remove("job-name", out v) ? v[^1] : null;
             var priorityClass = parsedArgs.Remove("priority", out v) ? Enum.Parse<PriorityClass>(v[^1], ignoreCase: true) : PriorityClass.Undefined;
-            var efficiencyMode = parsedArgs.Remove("efficiency-mode", out v) ? Enum.Parse<EfficiencyMode>(v[^1], ignoreCase: true) : EfficiencyMode.Undefined;
+            var efficiencyMode = parsedArgs.Remove("efficiency-mode", out v) ? v[^1] : null;
             var nowait = parsedArgs.Remove("nowait");
 
             // from: https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_cpu_rate_control_information
@@ -282,6 +282,40 @@ public static partial class Program
                 throw new ArgumentException("--isolate is incompatible with --job-name - you need to use either one");
             }
 
+            // Procgov configures efficiency mode as power throttling + idle priority class (this is what Task Manager expects
+            // to display a green leaf next to the process record)
+            var powerThrottling = PowerThrottling.Undefined;
+            var efficiencyModePriorityClass = PriorityClass.Undefined;
+            if (string.Equals(efficiencyMode, "on", StringComparison.OrdinalIgnoreCase))
+            {
+                powerThrottling = PowerThrottling.On;
+                efficiencyModePriorityClass = PriorityClass.Idle;
+            }
+            else if (string.Equals(efficiencyMode, "off", StringComparison.OrdinalIgnoreCase))
+            {
+                powerThrottling = PowerThrottling.Off;
+                efficiencyModePriorityClass = PriorityClass.Normal;
+            }
+            else if (string.Equals(efficiencyMode, "auto", StringComparison.OrdinalIgnoreCase))
+            {
+                powerThrottling = PowerThrottling.Auto;
+                efficiencyModePriorityClass = PriorityClass.Normal;
+            }
+            else if (efficiencyMode is not null)
+            {
+                throw new ArgumentException("--efficiency-mode must be set to either: on, off, or auto");
+            }
+
+            if (priorityClass is PriorityClass.Undefined)
+            {
+                priorityClass = efficiencyModePriorityClass;
+            }
+            else if (priorityClass != efficiencyModePriorityClass)
+            {
+                Logger.TraceWarning("As there is an explitic priority class defined, changing efficiency mode affects power throttling only. " +
+                    "Priority class will be set to to the provided value.");
+            }
+
             var environment = parsedArgs.Remove("env", out v) ? GetCustomEnvironmentVariables(v[^1]) : [];
 
             ImmutableArray<string> privileges = parsedArgs.Remove("enable-privilege", out v) ? [.. v] : [];
@@ -297,7 +331,7 @@ public static partial class Program
             JobSettings? jobSettings = new JobSettings(maxProcessMemory, maxJobMemory, maxWorkingSetSize, minWorkingSetSize,
                 cpuAffinity, cpuMaxRate, maxBandwidth, processUserTimeLimitInMilliseconds, jobUserTimeLimitInMilliseconds,
                 clockTimeLimitInMilliseconds, propagateOnChildProcesses, activeProcessLimit, priorityClass,
-                GetRunMode(requestedJobName, runIsolated), privileges, environment, efficiencyMode) is var j
+                GetRunMode(requestedJobName, runIsolated), privileges, environment, powerThrottling) is var j
                 && j.IsEmpty() && !parsedArgs.Remove("unset-limits") ? null : j;
 
             LaunchConfig launchConfig = LaunchConfig.Default;
@@ -583,13 +617,13 @@ public static partial class Program
         }
     }
 
-    static void ShowLimits(JobSettings? session)
+    static void ShowLimits(JobSettings? settings)
     {
-        if (session is null)
+        if (settings is null)
         {
             Console.WriteLine("Configured job limits will not be modified.");
         }
-        else if (session.IsEmpty())
+        else if (settings.IsEmpty())
         {
             Console.WriteLine("All configured job limits will be unset.");
         }
@@ -597,57 +631,65 @@ public static partial class Program
         {
             const uint ONE_MB = 1_048_576;
 
-            if (session.CpuAffinity.Length > 0)
+            if (settings.CpuAffinity.Length > 0)
             {
                 Console.WriteLine($"CPU groups and affinity masks:");
-                foreach (var (group, affinity) in session.CpuAffinity)
+                foreach (var (group, affinity) in settings.CpuAffinity)
                 {
                     Console.WriteLine($"  {group}:{affinity:X16}");
                 }
             }
-            if (session.CpuMaxRate > 0)
+            if (settings.CpuMaxRate > 0)
             {
-                Console.WriteLine($"Max CPU rate:                               {session.CpuMaxRate / 100.0:0.##}%");
-                if (session.CpuAffinity is not [])
+                Console.WriteLine($"Max CPU rate:                               {settings.CpuMaxRate / 100.0:0.##}%");
+                if (settings.CpuAffinity is not [])
                 {
                     Console.WriteLine("(NOTE: the CPU rate was adjusted to the CPU affinity settings)");
                 }
             }
-            if (session.MaxBandwidth > 0)
+            if (settings.MaxBandwidth > 0)
             {
-                Console.WriteLine($"Max bandwidth (B):                          {(session.MaxBandwidth):#,0}");
+                Console.WriteLine($"Max bandwidth (B):                          {(settings.MaxBandwidth):#,0}");
             }
-            if (session.MaxProcessMemory > 0)
+            if (settings.MaxProcessMemory > 0)
             {
-                Console.WriteLine($"Maximum committed memory (MB):              {(session.MaxProcessMemory / ONE_MB):0,0}");
+                Console.WriteLine($"Maximum committed memory (MB):              {(settings.MaxProcessMemory / ONE_MB):0,0}");
             }
-            if (session.MaxJobMemory > 0)
+            if (settings.MaxJobMemory > 0)
             {
-                Console.WriteLine($"Maximum job committed memory (MB):          {(session.MaxJobMemory / ONE_MB):0,0}");
+                Console.WriteLine($"Maximum job committed memory (MB):          {(settings.MaxJobMemory / ONE_MB):0,0}");
             }
-            if (session.MinWorkingSetSize > 0)
+            if (settings.MinWorkingSetSize > 0)
             {
-                Debug.Assert(session.MaxWorkingSetSize > 0);
-                Console.WriteLine($"Minimum WS memory (MB):                     {(session.MinWorkingSetSize / ONE_MB):0,0}");
+                Debug.Assert(settings.MaxWorkingSetSize > 0);
+                Console.WriteLine($"Minimum WS memory (MB):                     {(settings.MinWorkingSetSize / ONE_MB):0,0}");
+                Console.WriteLine($"Maximum WS memory (MB):                     {(settings.MaxWorkingSetSize / ONE_MB):0,0}");
             }
-            if (session.MaxWorkingSetSize > 0)
+            if (settings.ProcessUserTimeLimitInMilliseconds > 0)
             {
-                Debug.Assert(session.MinWorkingSetSize > 0);
-                Console.WriteLine($"Maximum WS memory (MB):                     {(session.MaxWorkingSetSize / ONE_MB):0,0}");
+                Console.WriteLine($"Process user-time execution limit (ms):     {settings.ProcessUserTimeLimitInMilliseconds:0,0}");
             }
-            if (session.ProcessUserTimeLimitInMilliseconds > 0)
+            if (settings.JobUserTimeLimitInMilliseconds > 0)
             {
-                Console.WriteLine($"Process user-time execution limit (ms):     {session.ProcessUserTimeLimitInMilliseconds:0,0}");
+                Console.WriteLine($"Job user-time execution limit (ms):         {settings.JobUserTimeLimitInMilliseconds:0,0}");
             }
-            if (session.JobUserTimeLimitInMilliseconds > 0)
+            if (settings.JobClockTimeLimitInMilliseconds > 0)
             {
-                Console.WriteLine($"Job user-time execution limit (ms):         {session.JobUserTimeLimitInMilliseconds:0,0}");
+                Console.WriteLine($"Clock-time execution limit (ms):            {settings.JobClockTimeLimitInMilliseconds:0,0}");
             }
-            if (session.JobClockTimeLimitInMilliseconds > 0)
+            if (settings.PriorityClass is not PriorityClass.Undefined)
             {
-                Console.WriteLine($"Clock-time execution limit (ms):            {session.JobClockTimeLimitInMilliseconds:0,0}");
+                Console.WriteLine($"Process priority class:                     {settings.PriorityClass}");
             }
-            if (session.PropagateOnChildProcesses)
+            if (settings.ActiveProcessLimit > 0)
+            {
+                Console.WriteLine($"Active process limit:                       {settings.ActiveProcessLimit}");
+            }
+            if (settings.PowerThrottling is not PowerThrottling.Undefined)
+            {
+                Console.WriteLine($"Power throttling:                           {settings.PowerThrottling}");
+            }
+            if (settings.PropagateOnChildProcesses)
             {
                 Console.WriteLine();
                 Console.WriteLine("All configured limits will also apply to the child processes.");

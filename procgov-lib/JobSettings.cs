@@ -57,7 +57,7 @@ public sealed partial record JobSettings(
     [property: Key(13)] IRunMode RunMode, // not a job setting
     [property: Key(14)] ImmutableArray<string> Privileges, // not a job setting
     [property: Key(15)] ImmutableDictionary<string, string> Environment, //  not a job setting
-    [property: Key(16)] EfficiencyMode EfficiencyMode // not a job setting
+    [property: Key(16)] PowerThrottling PowerThrottling // not a job setting
 )
 {
     public readonly static byte Version = 4;
@@ -79,7 +79,7 @@ public sealed partial record JobSettings(
             RunMode: RunModes.Default,
             Privileges: [],
             Environment: [],
-            EfficiencyMode: EfficiencyMode.Undefined
+            PowerThrottling: PowerThrottling.Undefined
         );
 
 
@@ -100,7 +100,7 @@ public sealed partial record JobSettings(
         RunMode.IsEqualTo(settings.RunMode) &&
         (Privileges == settings.Privileges || Privileges.SequenceEqual(settings.Privileges)) &&
         (Environment == settings.Environment || AreDictionariesEqual(Environment, settings.Environment)) &&
-        (EfficiencyMode == settings.EfficiencyMode);
+        (PowerThrottling == settings.PowerThrottling);
 
     public override int GetHashCode()
     {
@@ -122,7 +122,7 @@ public sealed partial record JobSettings(
         hash.Add(RunMode);
         foreach (var priv in Privileges) { hash.Add(priv.GetHashCode()); }
         foreach (var env in Environment) { hash.Add(env.GetHashCode()); }
-        hash.Add(EfficiencyMode);
+        hash.Add(PowerThrottling);
         return hash.ToHashCode();
     }
 
@@ -147,7 +147,7 @@ public sealed partial record JobSettings(
         buffer.Append("Privileges:[").Append(string.Join(',', Privileges)).Append(']').Append(',');
         buffer.Append("Environment:[").Append(
             string.Join(',', Environment.Select(env => $"{env.Key}={env.Value}"))).Append(']').Append('}').Append(',');
-        buffer.Append("EfficiencyMode:").Append(EfficiencyMode);
+        buffer.Append("PowerThrottling:").Append(PowerThrottling).Append(',');
         return buffer.ToString();
     }
 
@@ -180,9 +180,9 @@ public sealed partial record JobSettings(
         {
             settingsApplied.Add("max_procs");
         }
-        if (PriorityClass != PriorityClass.Undefined && PriorityClass != PriorityClass.Normal)
+        if (PriorityClass != PriorityClass.Undefined)
         {
-            settingsApplied.Add("prio");
+            settingsApplied.Add("max_prio");
         }
         if (Privileges.Length > 0)
         {
@@ -192,9 +192,9 @@ public sealed partial record JobSettings(
         {
             settingsApplied.Add("env");
         }
-        if (EfficiencyMode != EfficiencyMode.Undefined)
+        if (PowerThrottling != PowerThrottling.Undefined)
         {
-            settingsApplied.Add("effmode");
+            settingsApplied.Add("pwr_thr");
         }
 
         return settingsApplied.Count > 0 ? string.Join(separator, settingsApplied) : "no limits";
@@ -203,7 +203,7 @@ public sealed partial record JobSettings(
     public bool IsEmpty() => this == Empty;
 
     public static implicit operator Win32ProcessSettings(JobSettings settings) =>
-        new(settings.Privileges, settings.Environment, settings.EfficiencyMode);
+        new(settings.Privileges, settings.Environment, settings.PowerThrottling);
 
     public static implicit operator Win32JobSettings(JobSettings settings) => new(
         settings.MaxProcessMemory, settings.MaxJobMemory, settings.MaxWorkingSetSize, settings.MinWorkingSetSize,
@@ -260,7 +260,7 @@ public enum PriorityClass : uint
     Realtime = PROCESS_CREATION_FLAGS.REALTIME_PRIORITY_CLASS,
 }
 
-public enum EfficiencyMode { Undefined = 0, Auto, On, Off }
+public enum PowerThrottling { Undefined = 0, Auto, On, Off }
 
 public sealed class MessagePackToJsonConverter<T> : JsonConverter<T> where T : IShapeable<T>
 {

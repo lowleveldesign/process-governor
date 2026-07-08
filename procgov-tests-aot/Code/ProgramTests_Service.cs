@@ -69,103 +69,6 @@ public partial class ProgramTests
         }
     }
 
-
-    [Test]
-    public async Task ServiceProcessSavedLegacySettings()
-    {
-        string[] env = [@"TESTPATH=C:\temp", "TESTVAR1=VAL1", "TESTVAR2="];
-        string[] privileges = ["SeDebugPrivilege"];
-
-        // procgov.exe --install -c 2 -m 200M --env C:\temp\vars.txt --enable-privilege=SeDebugPrivilege winver.exe
-        using var procgovKey = InstalledProcessSettingsModule.RootKey.CreateSubKey(InstalledProcessSettingsModule.RegistrySubKeyPath);
-        await Assert.That(procgovKey).IsNotNull();
-        try
-        {
-            using (var processKey = procgovKey!.CreateSubKey("test.exe", true))
-            {
-                await Assert.That(processKey).IsNotNull();
-
-                await FillAndVerifyLegacyProcessKey(processKey);
-
-                // ------- manually break the settings
-                processKey.SetValue("JobSettings", (byte[])[0x1], RegistryValueKind.Binary);
-
-                // values without = are not accepted
-                env = [@"TESTPATH=C:\temp", "TESTVAR3"];
-                processKey.SetValue("Environment", env, RegistryValueKind.MultiString);
-
-                var jobSettings = JobSettings.Empty with
-                {
-                    Environment = [.. env.Select(v => v.Split('=')).Where(v => v.Length == 2)
-                    .Select(v => new KeyValuePair<string, string>(v[0], v[1]))],
-                    Privileges = [.. privileges]
-                };
-
-                InstalledProcessSettingsModule.GetAllSavedProcessAndJobSettings(out var savedJobsSettings, out var savedProcessesSettings);
-                await Assert.That(savedProcessesSettings).ContainsKey("test.exe");
-                var jobId = savedProcessesSettings["test.exe"];
-                await Assert.That(savedJobsSettings[jobId]).IsEqualTo(jobSettings);
-            }
-
-            // this should remove and replace the legacy settings
-            InstalledProcessSettingsModule.SaveProcessAndJobSettings("test.exe", JobSettings.Empty with
-            {
-                Privileges = ["SeDebugPrivilege"]
-            });
-
-            await Assert.That(procgovKey.OpenSubKey("test.exe")).IsNull();
-
-            // remove new settings
-            InstalledProcessSettingsModule.RemoveSavedProcessSettings("test.exe");
-            InstalledProcessSettingsModule.GetAllSavedProcessAndJobSettings(out var _, out var s);
-            await Assert.That(s).DoesNotContainKey("test.exe");
-
-            using (var processKey = procgovKey!.CreateSubKey("test.exe", true))
-            {
-                await Assert.That(processKey).IsNotNull();
-
-                await FillAndVerifyLegacyProcessKey(processKey);
-            }
-
-            // this should remove the legacy settings
-            InstalledProcessSettingsModule.RemoveSavedProcessSettings("test.exe");
-            InstalledProcessSettingsModule.GetAllSavedProcessAndJobSettings(out var _, out s);
-            await Assert.That(s).DoesNotContainKey("test.exe");
-
-        }
-        finally
-        {
-            procgovKey.DeleteSubKey("test.exe", throwOnMissingSubKey: false);
-        }
-
-        // Helpers
-
-        async Task FillAndVerifyLegacyProcessKey(RegistryKey processKey)
-        {
-            processKey.SetValue("Environment", env, RegistryValueKind.MultiString);
-
-            processKey.SetValue("Privileges", privileges, RegistryValueKind.MultiString);
-
-            byte[] serializedJobBytes = [0x9d, 0xce, 0xc, 0x80, 0, 0, 0, 0, 0, 0x91, 0x92, 0, 3, 0, 0, 0, 0, 0, 0xc2, 0, 0];
-            processKey.SetValue("JobSettings", serializedJobBytes, RegistryValueKind.Binary);
-
-            var jobSettings = JobSettings.Empty with
-            {
-                MaxProcessMemory = 200 * 1024 * 1024,
-                CpuAffinity = [new(SharedApi.GetDefaultProcessorGroup().Number, 0x3)],
-                RunMode = new RunInAnonymousSharedJob(),
-                Environment = [.. env.Select(v => v.Split('=')).Where(v => v.Length == 2)
-                    .Select(v => new KeyValuePair<string, string>(v[0], v[1]))],
-                Privileges = [.. privileges]
-            };
-
-            InstalledProcessSettingsModule.GetAllSavedProcessAndJobSettings(out var savedJobsSettings, out var savedProcessesSettings);
-            await Assert.That(savedProcessesSettings).ContainsKey("test.exe");
-            var jobId = savedProcessesSettings["test.exe"];
-            await Assert.That(savedJobsSettings[jobId]).IsEqualTo(jobSettings);
-        }
-    }
-
     [Test]
     public async Task ServiceGovernNewProcess()
     {
@@ -387,7 +290,6 @@ public partial class ProgramTests
         await monitorTask;
     }
 
-
     [Test]
     public async Task ServiceTwoProcessesInSameJob()
     {
@@ -477,5 +379,133 @@ public partial class ProgramTests
         }
 
         await monitorTask;
+    }
+
+    [Test]
+    public async Task ServiceProcessSavedLegacySettings_v3()
+    {
+        string[] env = [@"TESTPATH=C:\temp", "TESTVAR1=VAL1", "TESTVAR2="];
+        string[] privileges = ["SeDebugPrivilege"];
+
+        // procgov.exe --install -c 2 -m 200M --env C:\temp\vars.txt --enable-privilege=SeDebugPrivilege winver.exe
+        using var procgovKey = InstalledProcessSettingsModule.RootKey.CreateSubKey(InstalledProcessSettingsModule.RegistrySubKeyPath);
+        await Assert.That(procgovKey).IsNotNull();
+        try
+        {
+            using (var processKey = procgovKey!.CreateSubKey("test.exe", true))
+            {
+                await Assert.That(processKey).IsNotNull();
+
+                await FillAndVerifyLegacyProcessKey(processKey);
+
+                // ------- manually break the settings
+                processKey.SetValue("JobSettings", (byte[])[0x1], RegistryValueKind.Binary);
+
+                // values without = are not accepted
+                env = [@"TESTPATH=C:\temp", "TESTVAR3"];
+                processKey.SetValue("Environment", env, RegistryValueKind.MultiString);
+
+                var jobSettings = JobSettings.Empty with
+                {
+                    Environment = [.. env.Select(v => v.Split('=')).Where(v => v.Length == 2)
+                    .Select(v => new KeyValuePair<string, string>(v[0], v[1]))],
+                    Privileges = [.. privileges]
+                };
+
+                InstalledProcessSettingsModule.GetAllSavedProcessAndJobSettings(out var savedJobsSettings, out var savedProcessesSettings);
+                await Assert.That(savedProcessesSettings).ContainsKey("test.exe");
+                var jobId = savedProcessesSettings["test.exe"];
+                await Assert.That(savedJobsSettings[jobId]).IsEqualTo(jobSettings);
+            }
+
+            // this should remove and replace the legacy settings
+            InstalledProcessSettingsModule.SaveProcessAndJobSettings("test.exe", JobSettings.Empty with
+            {
+                Privileges = ["SeDebugPrivilege"]
+            });
+
+            await Assert.That(procgovKey.OpenSubKey("test.exe")).IsNull();
+
+            // remove new settings
+            InstalledProcessSettingsModule.RemoveSavedProcessSettings("test.exe");
+            InstalledProcessSettingsModule.GetAllSavedProcessAndJobSettings(out var _, out var s);
+            await Assert.That(s).DoesNotContainKey("test.exe");
+
+            using (var processKey = procgovKey!.CreateSubKey("test.exe", true))
+            {
+                await Assert.That(processKey).IsNotNull();
+
+                await FillAndVerifyLegacyProcessKey(processKey);
+            }
+
+            // this should remove the legacy settings
+            InstalledProcessSettingsModule.RemoveSavedProcessSettings("test.exe");
+            InstalledProcessSettingsModule.GetAllSavedProcessAndJobSettings(out var _, out s);
+            await Assert.That(s).DoesNotContainKey("test.exe");
+
+        }
+        finally
+        {
+            procgovKey.DeleteSubKey("test.exe", throwOnMissingSubKey: false);
+        }
+
+        // Helpers
+
+        async Task FillAndVerifyLegacyProcessKey(RegistryKey processKey)
+        {
+            processKey.SetValue("Environment", env, RegistryValueKind.MultiString);
+
+            processKey.SetValue("Privileges", privileges, RegistryValueKind.MultiString);
+
+            byte[] serializedJobBytes = [0x9d, 0xce, 0xc, 0x80, 0, 0, 0, 0, 0, 0x91, 0x92, 0, 3, 0, 0, 0, 0, 0, 0xc2, 0, 0];
+            processKey.SetValue("JobSettings", serializedJobBytes, RegistryValueKind.Binary);
+
+            var jobSettings = JobSettings.Empty with
+            {
+                MaxProcessMemory = 200 * 1024 * 1024,
+                CpuAffinity = [new(SharedApi.GetDefaultProcessorGroup().Number, 0x3)],
+                RunMode = new RunInAnonymousSharedJob(),
+                Environment = [.. env.Select(v => v.Split('=')).Where(v => v.Length == 2)
+                    .Select(v => new KeyValuePair<string, string>(v[0], v[1]))],
+                Privileges = [.. privileges]
+            };
+
+            InstalledProcessSettingsModule.GetAllSavedProcessAndJobSettings(out var savedJobsSettings, out var savedProcessesSettings);
+            await Assert.That(savedProcessesSettings).ContainsKey("test.exe");
+            var jobId = savedProcessesSettings["test.exe"];
+            await Assert.That(savedJobsSettings[jobId]).IsEqualTo(jobSettings);
+        }
+    }
+
+    [Test]
+    public async Task ServiceProcessSavedLegacySettings_v4()
+    {
+        using var procgovKey = InstalledProcessSettingsModule.RootKey.CreateSubKey(InstalledProcessSettingsModule.RegistrySubKeyPath);
+        await Assert.That(procgovKey).IsNotNull();
+
+        using var jobsKey = procgovKey.CreateSubKey("Jobs", true);
+        using var processesKey = procgovKey.CreateSubKey("Processes", true);
+
+        // procgov --install --priority=idle --maxmem 1G test.exe
+        byte[] serializedJobBytes = [0x04,0xdc,0x00,0x11,0xce,0x40,0x00,0x00,0x00,0x00,0x00,0x00,
+                    0x90,0x00,0x00,0x00,0x00,0x00,0xc2,0x00,0x40,0x92,0x02,0x80,0x90,0x80,0x00];
+        jobsKey.SetValue("10dd053c-079b-4432-bed9-8b0e79ccdbba", serializedJobBytes, RegistryValueKind.Binary);
+        processesKey.SetValue("test.exe", "10dd053c-079b-4432-bed9-8b0e79ccdbba");
+        try
+        {
+            InstalledProcessSettingsModule.GetAllSavedProcessAndJobSettings(out var savedJobsSettings, out var savedProcessesSettings);
+            await Assert.That(savedProcessesSettings).ContainsKey("test.exe");
+            var jobId = savedProcessesSettings["test.exe"];
+            await Assert.That(savedJobsSettings[jobId]).IsEqualTo(JobSettings.Empty with
+            {
+                PriorityClass = PriorityClass.Idle,
+                MaxProcessMemory = 1_073_741_824
+            });
+        }
+        finally
+        {
+            processesKey.DeleteValue("test.exe");
+            jobsKey.DeleteValue("10dd053c-079b-4432-bed9-8b0e79ccdbba");
+        }
     }
 }

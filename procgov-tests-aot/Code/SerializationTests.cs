@@ -27,7 +27,7 @@ public class SerializationTests
             RunMode: RunModes.Default,
             Privileges: ["priv1", "priv2"],
             Environment: ImmutableDictionary.CreateRange([new KeyValuePair<string, string>("Env1", "Val1")]),
-            EfficiencyMode: EfficiencyMode.Off
+            PowerThrottling: PowerThrottling.Off
         );
 
         var serialized = MsgPackSerializer.Serialize(settings);

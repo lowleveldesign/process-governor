@@ -23,10 +23,10 @@ public record struct Win32ProcessSettings(
     ImmutableArray<string> Privileges,
     // the environment variables may require expansion (for example, a valid value could be "%PATH%;C:\\temp")
     ImmutableDictionary<string, string> Environment,
-    EfficiencyMode EfficiencyMode
+    PowerThrottling EfficiencyMode
 )
 {
-    public Win32ProcessSettings() : this([], [], EfficiencyMode.Auto) { }
+    public Win32ProcessSettings() : this([], [], PowerThrottling.Auto) { }
 }
 
 public record struct Win32Process(SafeHandle Handle, uint Id) : IDisposable
@@ -84,22 +84,11 @@ public static class Win32ProcessModule
 
     // INTERNAL APIs
 
-    internal static Win32Process StartProcess(string arguments, ProcessCreationFlags flags, Win32ProcessSettings settings)
-    {
-        SafeHandle? threadHandle = null;
-        try
-        {
-            return StartProcess(arguments, flags, settings, out threadHandle);
-        }
-        finally { threadHandle?.Dispose(); }
-    }
-
     internal static Win32Process StartProcess(string arguments, ProcessCreationFlags flags, Win32ProcessSettings settings,
         out SafeHandle mainThreadHandle)
     {
         var leaveSuspended = flags.HasFlag(ProcessCreationFlags.Suspended);
-        var processObject = CreateProcess(arguments, flags | ProcessCreationFlags.Suspended,
-            settings.Environment, out mainThreadHandle);
+        var processObject = CreateProcess(arguments, flags | ProcessCreationFlags.Suspended, settings, out mainThreadHandle);
         UpdateNewlyStartedProcessSettings(processObject.Handle, settings, null);
 
         if (!leaveSuspended)
@@ -113,8 +102,7 @@ public static class Win32ProcessModule
     internal static Win32Process StartProcessInJob(string arguments, ProcessCreationFlags flags, Win32ProcessSettings settings, SafeHandle jobHandle)
     {
         var leaveSuspended = flags.HasFlag(ProcessCreationFlags.Suspended);
-        var processObject = CreateProcessWithJobAssigned(arguments, flags | ProcessCreationFlags.Suspended,
-            settings.Environment, jobHandle, out var mainThreadHandle);
+        var processObject = CreateProcessWithJobAssigned(arguments, flags | ProcessCreationFlags.Suspended, settings, jobHandle, out var mainThreadHandle);
         try
         {
             UpdateNewlyStartedProcessSettings(processObject.Handle, settings, jobHandle);
@@ -138,7 +126,7 @@ public static class Win32ProcessModule
         var leaveSuspended = flags.HasFlag(ProcessCreationFlags.Suspended);
 
         var processObject = CreateProcessWithToken(arguments, flags | ProcessCreationFlags.Suspended,
-            settings.Environment, tokenHandle, out var mainThreadHandle);
+            settings, tokenHandle, out var mainThreadHandle);
         try
         {
             UpdateNewlyStartedProcessSettings(processObject.Handle, settings, jobHandle);
@@ -170,7 +158,7 @@ public static class Win32ProcessModule
         {
             requiredAccessRights |= RequiredInjectionAccessRights;
         }
-        if (settings.EfficiencyMode != EfficiencyMode.Undefined)
+        if (settings.EfficiencyMode != PowerThrottling.Undefined)
         {
             requiredAccessRights |= (uint)PROCESS_ACCESS_RIGHTS.PROCESS_SET_INFORMATION;
         }
@@ -189,7 +177,7 @@ public static class Win32ProcessModule
     internal static void UpdateUninheritedProcessSettings(uint processId, Win32ProcessSettings settings)
     {
         uint requiredAccessRights = 0;
-        if (settings.EfficiencyMode != EfficiencyMode.Undefined)
+        if (settings.EfficiencyMode != PowerThrottling.Undefined)
         {
             requiredAccessRights = (uint)PROCESS_ACCESS_RIGHTS.PROCESS_SET_INFORMATION;
         }
@@ -555,22 +543,22 @@ public static class Win32ProcessModule
 
     private static void UpdateUninheritedProcessSettings(SafeHandle processHandle, Win32ProcessSettings settings)
     {
-        if (settings.EfficiencyMode != EfficiencyMode.Undefined)
+        if (settings.EfficiencyMode != PowerThrottling.Undefined)
         {
             SetEfficiencyMode(processHandle.ToHANDLE(), settings.EfficiencyMode);
         }
 
         // requires handle with PROCESS_SET_INFORMATION access right
-        unsafe static void SetEfficiencyMode(HANDLE processHandle, EfficiencyMode effMode)
+        unsafe static void SetEfficiencyMode(HANDLE processHandle, PowerThrottling effMode)
         {
             PROCESS_POWER_THROTTLING_STATE state = new()
             {
                 Version = PInvoke.PROCESS_POWER_THROTTLING_CURRENT_VERSION,
-                ControlMask = effMode.HasFlag(EfficiencyMode.Auto) ? 0 : PInvoke.PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
-                StateMask = effMode.HasFlag(EfficiencyMode.Auto) || effMode.HasFlag(EfficiencyMode.Off) ? 0 :
+                ControlMask = effMode.HasFlag(PowerThrottling.Auto) ? 0 : PInvoke.PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+                StateMask = effMode.HasFlag(PowerThrottling.Auto) || effMode.HasFlag(PowerThrottling.Off) ? 0 :
                     PInvoke.PROCESS_POWER_THROTTLING_EXECUTION_SPEED
             };
-            if (!PInvoke.SetProcessInformation(processHandle, PROCESS_INFORMATION_CLASS.ProcessPowerThrottling, 
+            if (!PInvoke.SetProcessInformation(processHandle, PROCESS_INFORMATION_CLASS.ProcessPowerThrottling,
                 &state, (uint)sizeof(PROCESS_POWER_THROTTLING_STATE)))
             {
                 throw new Win32Exception(Marshal.GetLastWin32Error());
@@ -590,57 +578,43 @@ public static class Win32ProcessModule
         UpdateUninheritedProcessSettings(processHandle, settings);
     }
 
+    private static PROCESS_CREATION_FLAGS GetWin32ProcessCreationFlags(ProcessCreationFlags flags, Win32ProcessSettings settings) =>
+        PROCESS_CREATION_FLAGS.CREATE_UNICODE_ENVIRONMENT
+            | (flags.HasFlag(ProcessCreationFlags.NewConsole) ? PROCESS_CREATION_FLAGS.CREATE_NEW_CONSOLE : 0)
+            | (flags.HasFlag(ProcessCreationFlags.Suspended) ? PROCESS_CREATION_FLAGS.CREATE_SUSPENDED : 0);
+
     private static unsafe Win32Process CreateProcess(string arguments, ProcessCreationFlags flags,
-        ImmutableDictionary<string, string> additionalEnvironmentVars, out SafeHandle mainThreadHandle)
-    {
-        var pi = new PROCESS_INFORMATION();
-        var si = new STARTUPINFOW();
-        var processCreationFlags = PROCESS_CREATION_FLAGS.CREATE_UNICODE_ENVIRONMENT;
-        if (flags.HasFlag(ProcessCreationFlags.NewConsole))
-        {
-            processCreationFlags |= PROCESS_CREATION_FLAGS.CREATE_NEW_CONSOLE;
-        }
-        if (flags.HasFlag(ProcessCreationFlags.Suspended))
-        {
-            processCreationFlags |= PROCESS_CREATION_FLAGS.CREATE_SUSPENDED;
-        }
-
-        char[] cmdline = [.. arguments, '\0'];
-
-        fixed (char* penv = GetEnvironmentString(additionalEnvironmentVars))
-        fixed (char* cmdlinePtr = cmdline)
-        {
-            CheckWin32Result(PInvoke.CreateProcess(null, new PWSTR(cmdlinePtr), null, null, false,
-                processCreationFlags, penv, null, &si, &pi));
-        }
-
-        mainThreadHandle = new SafeFileHandle(pi.hThread, true);
-        return new Win32Process(new SafeFileHandle(pi.hProcess, true), pi.dwProcessId);
-    }
-
-    private unsafe static Win32Process CreateProcessWithToken(string arguments, ProcessCreationFlags flags,
-               ImmutableDictionary<string, string> additionalEnvironmentVars, SafeHandle tokenHandle, out SafeHandle mainThreadHandle)
+        Win32ProcessSettings settings, out SafeHandle mainThreadHandle)
     {
         var startupInfo = new STARTUPINFOW() { cb = (uint)sizeof(STARTUPINFOW) };
-        var processCreationFlags = PROCESS_CREATION_FLAGS.CREATE_UNICODE_ENVIRONMENT;
-        if (flags.HasFlag(ProcessCreationFlags.NewConsole))
-        {
-            processCreationFlags |= PROCESS_CREATION_FLAGS.CREATE_NEW_CONSOLE;
-        }
-        if (flags.HasFlag(ProcessCreationFlags.Suspended))
-        {
-            processCreationFlags |= PROCESS_CREATION_FLAGS.CREATE_SUSPENDED;
-        }
-
         var processInfo = new PROCESS_INFORMATION();
 
         char[] cmdline = [.. arguments, '\0'];
 
-        fixed (char* penv = GetEnvironmentString(additionalEnvironmentVars))
+        fixed (char* penv = GetEnvironmentString(settings.Environment))
+        fixed (char* cmdlinePtr = cmdline)
+        {
+            CheckWin32Result(PInvoke.CreateProcess(null, new PWSTR(cmdlinePtr), null, null, false,
+                GetWin32ProcessCreationFlags(flags, settings), penv, null, &startupInfo, &processInfo));
+        }
+
+        mainThreadHandle = new SafeFileHandle(processInfo.hThread, true);
+        return new Win32Process(new SafeFileHandle(processInfo.hProcess, true), processInfo.dwProcessId);
+    }
+
+    private unsafe static Win32Process CreateProcessWithToken(string arguments, ProcessCreationFlags flags,
+        Win32ProcessSettings settings, SafeHandle tokenHandle, out SafeHandle mainThreadHandle)
+    {
+        var startupInfo = new STARTUPINFOW() { cb = (uint)sizeof(STARTUPINFOW) };
+        var processInfo = new PROCESS_INFORMATION();
+
+        char[] cmdline = [.. arguments, '\0'];
+
+        fixed (char* penv = GetEnvironmentString(settings.Environment))
         fixed (char* cmdlinePtr = cmdline)
         {
             if (!PInvoke.CreateProcessWithToken((HANDLE)tokenHandle.DangerousGetHandle(), CREATE_PROCESS_LOGON_FLAGS.LOGON_WITH_PROFILE,
-                null, new PWSTR(cmdlinePtr), processCreationFlags, penv, null, &startupInfo, &processInfo))
+                null, new PWSTR(cmdlinePtr), GetWin32ProcessCreationFlags(flags, settings), penv, null, &startupInfo, &processInfo))
             {
                 throw new Win32Exception(Marshal.GetLastPInvokeError());
             }
@@ -653,7 +627,7 @@ public static class Win32ProcessModule
     }
 
     private unsafe static Win32Process CreateProcessWithJobAssigned(string arguments, ProcessCreationFlags flags,
-        ImmutableDictionary<string, string> additionalEnvironmentVars, SafeHandle jobHandle, out SafeHandle mainThreadHandle)
+        Win32ProcessSettings settings, SafeHandle jobHandle, out SafeHandle mainThreadHandle)
     {
         var procThreadAttrList = new LPPROC_THREAD_ATTRIBUTE_LIST();
 
@@ -689,21 +663,12 @@ public static class Win32ProcessModule
                     StartupInfo = new STARTUPINFOW() { cb = (uint)sizeof(STARTUPINFOEXW) },
                     lpAttributeList = procThreadAttrList
                 };
-                var processCreationFlags = PROCESS_CREATION_FLAGS.EXTENDED_STARTUPINFO_PRESENT | PROCESS_CREATION_FLAGS.CREATE_UNICODE_ENVIRONMENT;
-                if (flags.HasFlag(ProcessCreationFlags.NewConsole))
-                {
-                    processCreationFlags |= PROCESS_CREATION_FLAGS.CREATE_NEW_CONSOLE;
-                }
-                if (flags.HasFlag(ProcessCreationFlags.Suspended))
-                {
-                    processCreationFlags |= PROCESS_CREATION_FLAGS.CREATE_SUSPENDED;
-                }
-
                 var processInfo = new PROCESS_INFORMATION();
+                var processCreationFlags = PROCESS_CREATION_FLAGS.EXTENDED_STARTUPINFO_PRESENT | GetWin32ProcessCreationFlags(flags, settings);
 
                 char[] cmdline = [.. arguments, '\0'];
 
-                fixed (char* penv = GetEnvironmentString(additionalEnvironmentVars))
+                fixed (char* penv = GetEnvironmentString(settings.Environment))
                 fixed (char* cmdlinePtr = cmdline)
                 {
                     if (!PInvoke.CreateProcess(null, new PWSTR(cmdlinePtr), null, null, true, processCreationFlags, null, null,

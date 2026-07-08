@@ -22,6 +22,7 @@ GetExitCodeThread
 GetLogicalProcessorInformationEx
 GetModuleFileNameEx
 GetPerformanceInfo
+GetPriorityClass
 GetProcessId
 GetProcessInformation
 GetQueuedCompletionStatus
@@ -41,6 +42,7 @@ RtlNtStatusToDosError
 QueryInformationJobObject
 QueryFullProcessImageName
 SetInformationJobObject
+SetPriorityClass
 SetProcessInformation
 TerminateJobObject
 TerminateProcess

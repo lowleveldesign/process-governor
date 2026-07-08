@@ -559,6 +559,9 @@ public static partial class Program
                         {
                             return bytes[0] switch
                             {
+#pragma warning disable CS0612 // Type or member is obsolete
+                               // 3 => Updater.ToCurrent(MsgPackSerializer.Deserialize<JobSettings_v4>(bytes.AsMemory()[1..]) ?? JobSettings_v4.Empty),
+#pragma warning restore CS0612
                                 4 => MsgPackSerializer.Deserialize<JobSettings>(bytes.AsMemory()[1..]) ?? JobSettings.Empty,
                                 var v => throw new ArgumentException($"unrecognized settings version: {v}")
                             };

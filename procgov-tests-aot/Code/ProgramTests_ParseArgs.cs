@@ -1,7 +1,4 @@
 ﻿using ProcessGovernor.Library;
-using System;
-using System.Collections.Generic;
-using System.IO;
 
 namespace ProcessGovernor.Tests.Code;
 
@@ -658,7 +655,7 @@ public partial class ProgramTests
     }
 
     [Test]
-    public async Task ParseArgsPriorityClass()
+    public async Task ParseArgsJobPriorityClass()
     {
         var priorityClassNamesMap = new Dictionary<string, PriorityClass>()
         {
@@ -685,27 +682,27 @@ public partial class ProgramTests
             }
         }
 
-        await Assert.That(Program.ParseArgs(RealSystemInfo, [$"--priority=invalid", "test.exe"]) is ShowHelpAndExit
+        await Assert.That(Program.ParseArgs(RealSystemInfo, ["--priority=invalid", "test.exe"]) is ShowHelpAndExit
         {
-            ErrorMessage: var msg
-        } ? msg : null).IsEqualTo("Requested value 'invalid' was not found.");
+            ErrorMessage: var msg2
+        } ? msg2 : null).IsEqualTo("Requested value 'invalid' was not found.");
     }
 
     [Test]
     public async Task ParseArgsEfficiencyMode()
     {
-        (string, EfficiencyMode)[] efficiencyModes = [
-            ("on", EfficiencyMode.On),
-            ("ON", EfficiencyMode.On),
-            ("Off", EfficiencyMode.Off),
-            ("auto", EfficiencyMode.Auto)
+        (string, PowerThrottling)[] efficiencyModes = [
+            ("on", PowerThrottling.On),
+            ("ON", PowerThrottling.On),
+            ("Off", PowerThrottling.Off),
+            ("auto", PowerThrottling.Auto)
         ];
 
         foreach (var (v, em) in efficiencyModes)
         {
             if (Program.ParseArgs(RealSystemInfo, [$"--efficiency-mode={v}", "test.exe"]) is RunAsCmdApp
                 {
-                    JobSettings.EfficiencyMode: var efficiencyMode
+                    JobSettings.PowerThrottling: var efficiencyMode
                 })
             {
                 await Assert.That(efficiencyMode).IsEqualTo(em);
@@ -716,7 +713,7 @@ public partial class ProgramTests
         await Assert.That(Program.ParseArgs(RealSystemInfo, [$"--efficiency-mode=invalid", "test.exe"]) is ShowHelpAndExit
         {
             ErrorMessage: var msg
-        } ? msg : null).IsEqualTo("Requested value 'invalid' was not found.");
+        } ? msg : null).IsEqualTo("--efficiency-mode must be set to either: on, off, or auto");
     }
 
     [Test]
